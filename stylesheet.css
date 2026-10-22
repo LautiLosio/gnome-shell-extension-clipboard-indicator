@@ -102,6 +102,8 @@
 /* Text inherits GNOME Shell's font and text scaling. Geometry follows em units. */
 .ci-history-row { height: 2.5em; }
 .ci-thumbnail { icon-size: 1.6em; }
-.ci-row-actions { spacing: 0.15em; }
-.ci-row-action { padding: 0.2em; }
-.ci-row-action .popup-menu-icon, .ci-pin-indicator { icon-size: 1.1em; }
+.ci-row-actions { spacing: 0.25em; margin-left: 0.5em; }
+.ci-floating-history .ci-row-action { min-width: 0; min-height: 0; padding: 0.35em; }
+/* Menu-leading icons carry spacing that does not belong inside icon buttons. */
+.ci-row-action .ci-action-icon { icon-size: 1.1em; padding: 0; margin: 0; }
+.ci-pin-indicator { icon-size: 1.1em; }

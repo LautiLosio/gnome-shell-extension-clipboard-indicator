@@ -232,10 +232,10 @@ export default class ClipboardArchive extends Extension {
             const active = () => this.setActive(index);
             item.connect('key-focus-in', () => { active(); AnimationUtils.ensureActorVisibleInScrollView(this.scroll,item); });
             item.connect('notify::hover', () => { if(item.hover) active(); });
-            const actions=new St.BoxLayout({style_class:'ci-row-actions',visible:index===this.selected});
+            const actions=new St.BoxLayout({style_class:'ci-row-actions',visible:index===this.selected,y_align:Clutter.ActorAlign.CENTER});
             const action=(icon,label,callback,checked=false) => {
-                const button=new St.Button({can_focus:true,style_class:'button flat ci-row-action',accessible_name:label,
-                    child:new St.Icon({icon_name:icon,style_class:'popup-menu-icon'})});
+                const button=new St.Button({can_focus:true,style_class:'button flat ci-row-action',accessible_name:label,y_align:Clutter.ActorAlign.CENTER,
+                    child:new St.Icon({icon_name:icon,style_class:'ci-action-icon'})});
                 if (checked) button.add_style_pseudo_class('checked');
                 button.connect('clicked',() => this.run(callback));
                 button.connect('key-focus-in',active);
