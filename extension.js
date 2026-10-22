@@ -15,6 +15,7 @@ import {ServiceClient} from './serviceClient.js';
 import {Keyboard} from './keyboard.js';
 import {DialogManager} from './confirmDialog.js';
 import {placePopup} from './placement.js';
+import {getSearchMode, SEARCH_MODES} from './searchMode.js';
 
 const TYPE = St.ClipboardType.CLIPBOARD;
 const PAGE = 60;
@@ -105,7 +106,7 @@ export default class ClipboardArchive extends Extension {
         this.button.menu.addMenuItem(this.archiveInfo);
         this.storageMenu=new PopupMenu.PopupSubMenuMenuItem('Storage');
         this.storageRows={};
-        for(const [key,label] of [['content_bytes','Saved content'],['database_bytes','Database and journals'],['attachment_bytes','Attachments and previews'],['runtime_bytes','Search runtime'],['model_bytes','Search models']]) {
+        for(const [key,label] of [['semantic','Semantic model'],['content_bytes','Saved content'],['database_bytes','Database and journals'],['attachment_bytes','Attachments and previews'],['runtime_bytes','Search runtime'],['model_bytes','Search models']]) {
             const row=new PopupMenu.PopupMenuItem(label,{reactive:false});
             this.storageRows[key]={row,label};this.storageMenu.menu.addMenuItem(row);
         }
@@ -118,8 +119,8 @@ export default class ClipboardArchive extends Extension {
             if (open) this.run(async () => {
                 const s = await this.client.request('stats');
                 if (!this.dead) {
-                    this.archiveInfo.label.text = `${s.count} ${s.count===1?'item':'items'} · ${GLib.format_size_full(s.content_bytes,GLib.FormatSizeFlags.IEC_UNITS)} content · Search: ${s.semantic}`;
-                    for(const [key,{row,label}] of Object.entries(this.storageRows)) row.label.text=`${label}: ${GLib.format_size_full(s[key],GLib.FormatSizeFlags.IEC_UNITS)}`;
+                    this.archiveInfo.label.text = `${s.count} ${s.count===1?'item':'items'} · ${GLib.format_size_full(s.content_bytes,GLib.FormatSizeFlags.IEC_UNITS)} content · ${SEARCH_MODES[getSearchMode(this.settings)]}`;
+                    for(const [key,{row,label}] of Object.entries(this.storageRows)) row.label.text=`${label}: ${key==='semantic' ? s.semantic : GLib.format_size_full(s[key],GLib.FormatSizeFlags.IEC_UNITS)}`;
                 }
             });
         });
@@ -213,7 +214,7 @@ export default class ClipboardArchive extends Extension {
             const reply = await this.client.request('query',{q,offset:this.offset,limit:PAGE,semantic:this.semanticMode || false,...this.searchOptions()});
             if (this.dead || token !== this.generation || !this.history.isOpen) return;
             this.render(reply,reset);
-            if (q && this.offset === 0 && this.settings.get_boolean('semantic-search') && !this.semanticMode && !this.settings.get_boolean('regex-search')) {
+            if (q && this.offset === 0 && getSearchMode(this.settings)===1 && !this.semanticMode) {
                 const hybrid = await this.client.request('query',{q,limit:PAGE,semantic:true,...this.searchOptions()});
                 if (!this.dead && token === this.generation && this.history.isOpen) { this.semanticMode=true; this.render(hybrid,true); }
             }
@@ -266,7 +267,7 @@ export default class ClipboardArchive extends Extension {
                 button.connect('key-focus-in',active);
                 actions.add_child(button);
             };
-            if(entry.mimetype.startsWith('image/') && this.settings.get_boolean('show-preview-button')) action('view-reveal-symbolic','Preview image',async () => {
+            if(entry.mimetype.startsWith('image/') && this.settings.get_boolean('show-preview-button')) action('view-reveal-symbolic','Open image in viewer',async () => {
                 const result=await this.client.request('file',{entry:entry.id});
                 this.history.close();
                 Gio.AppInfo.launch_default_for_uri_async(result.uri,null,null,(_,res) => {
@@ -509,7 +510,7 @@ export default class ClipboardArchive extends Extension {
     }
 
     searchOptions() {
-        return {case_sensitive:this.settings.get_boolean('case-sensitive-search'),regex:this.settings.get_boolean('regex-search'),pinned_bottom:this.settings.get_boolean('pinned-on-bottom')};
+        return {case_sensitive:this.settings.get_boolean('case-sensitive-search'),regex:getSearchMode(this.settings)===2,pinned_bottom:this.settings.get_boolean('pinned-on-bottom')};
     }
 
     applySettings() {
@@ -521,6 +522,7 @@ export default class ClipboardArchive extends Extension {
         this.privateSwitch.visible=this.settings.get_boolean('show-private-mode');
         if(this.clearAction) this.clearAction.visible=this.settings.get_boolean('show-clear-history-button') && this.settings.get_boolean('enable-deletion');
         if(this.preferencesAction) this.preferencesAction.visible=this.settings.get_boolean('show-settings-button');
+        this.search.hint_text=getSearchMode(this.settings)===2 ? 'Search with a regular expression…' : 'Search clipboard history…';
         this.searchRow.visible=this.settings.get_boolean('show-search-bar');
         if(!this.searchRow.visible) this.search.text='';
         if(this.currentId) this.updatePanel(this.currentId);
@@ -553,7 +555,7 @@ export default class ClipboardArchive extends Extension {
         if(!this.settings.get_boolean('enable-deletion')) return;
         this.history.close();
         const clear=()=>this.run(()=>this.clearArchive());
-        if(this.settings.get_boolean('confirm-clear')) this.dialogs.open('Clear unpinned history?', 'Pinned entries will be kept.', '', 'Clear','Cancel',clear);
+        if(this.settings.get_boolean('confirm-clear')) this.dialogs.open('Clear unpinned history?', this.settings.get_boolean('keep-selected-on-clear') ? 'Pinned entries and the selected entry will be kept. The current clipboard will be preserved.' : 'Pinned entries will be kept. The current clipboard will also be emptied.', '', 'Clear','Cancel',clear);
         else clear();
     }
 

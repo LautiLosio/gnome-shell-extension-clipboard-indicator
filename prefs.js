@@ -1,4 +1,5 @@
 import Adw from 'gi://Adw';
+import {getSearchMode, SEARCH_MODES} from './searchMode.js';
 import Gtk from 'gi://Gtk';
 import Gio from 'gi://Gio';
 import {ExtensionPreferences} from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
@@ -35,10 +36,11 @@ export default class ArchivePreferences extends ExtensionPreferences {
         spin(layout,'Text preview characters','preview-size',10,100);
         toggle(layout,'Pinned items at the bottom','pinned-on-bottom');
         const previews=group('UI','Hover previews');
-        toggle(previews,'Preview the active entry','hover-preview','Hover a row or focus it with the keyboard to preview text or an image.');
-        spin(previews,'Preview delay in milliseconds','hover-preview-delay',100,2000,50);
-        const actions=group('UI','Row actions','Icons appear only on the hovered or keyboard-selected entry. Hiding an icon keeps its shortcut available.');
-        for(const [title,key] of [['Pin / unpin','show-pin-button'],['Edit text','show-edit-button'],['Image preview','show-preview-button'],['Edit tag','show-tag-button'],['Delete','show-delete-button'],['Paste immediately','paste-button']]) toggle(actions,title,key);
+        const previewToggle=toggle(previews,'Preview the active entry','hover-preview','Hover a row or focus it with the keyboard to preview text or an image.');
+        const previewDelay=spin(previews,'Preview delay in milliseconds','hover-preview-delay',100,2000,50);
+        previewToggle.bind_property('active',previewDelay,'sensitive',2);
+        const actions=group('UI','Row actions','Icons appear only on the hovered or keyboard-selected entry. Pin, edit, tag and delete shortcuts remain available when their icons are hidden.');
+        for(const [title,key] of [['Pin / unpin','show-pin-button'],['Edit text','show-edit-button'],['Open image in viewer','show-preview-button'],['Edit tag','show-tag-button'],['Delete','show-delete-button'],['Paste immediately','paste-button']]) toggle(actions,title,key);
         const tray=group('UI','Quick settings menu');
         toggle(tray,'Show private mode','show-private-mode');toggle(tray,'Show preferences','show-settings-button');toggle(tray,'Show clear history','show-clear-history-button');
         const capture=group('Behavior','Capture');
@@ -48,17 +50,33 @@ export default class ArchivePreferences extends ExtensionPreferences {
         toggle(capture,'Paste on selection','paste-on-select','Otherwise selecting an entry only copies it. The row Paste icon always pastes.');
         toggle(capture,'Move selected items to the top','move-item-first');
         const deletion=group('Behavior','Deletion and cleanup');
-        toggle(deletion,'Allow deletion','enable-deletion','Controls manual deletion and clearing.');
+        toggle(deletion,'Allow manual deletion','enable-deletion','Controls the Delete action and manual clearing. Scheduled cleanup and retention limits still apply.');
         toggle(deletion,'Confirm clearing history','confirm-clear');
         toggle(deletion,'Confirm deleting pinned entries','confirm-pinned-delete');
         toggle(deletion,'Keep the selected entry when clearing','keep-selected-on-clear');
         toggle(deletion,'Clear unpinned entries when the extension starts','clear-on-boot');
-        toggle(deletion,'Clear unpinned history periodically','clear-history-on-interval');
-        spin(deletion,'Clear interval in minutes','clear-history-interval',1,10080);
-        const search=group('Search','Search modes');
-        toggle(search,'Local semantic search','semantic-search','Meaning-based ranking using the local model. Regex mode uses exact pattern results instead.');
-        toggle(search,'Case-sensitive text search','case-sensitive-search','Keyword matching uses an exact substring when enabled. Semantic similarity is independent of letter case.');
-        toggle(search,'Regular expression search','regex-search','Runs in a separate process with a one-second deadline. Broad patterns may time out on large archives.');
+        const periodic=toggle(deletion,'Clear unpinned history periodically','clear-history-on-interval');
+        const interval=spin(deletion,'Clear interval in minutes','clear-history-interval',1,10080);
+        periodic.bind_property('active',interval,'sensitive',2);
+        const search=group('Search','Search');
+        const searchMode=new Adw.ComboRow({title:'Search mode',model:Gtk.StringList.new(SEARCH_MODES),selected:getSearchMode(settings)});
+        search.add(searchMode);
+        searchMode.connect('notify::selected',()=>settings.set_int('search-mode',searchMode.selected));
+        const caseRow=toggle(search,'Case-sensitive matching','case-sensitive-search');
+        const updateSearch=()=>{
+            searchMode.selected=getSearchMode(settings);
+            searchMode.subtitle=[
+                'Indexed word-prefix matching. Case-sensitive matching uses an exact substring instead.',
+                'Combines keyword matching and local semantic similarity. Falls back to keywords if the model is unavailable.',
+                'Pattern matching in a separate process with a one-second deadline. Broad patterns may time out.',
+            ][searchMode.selected];
+            caseRow.subtitle=searchMode.selected===1
+                ? 'Affects only the keyword results, using exact substrings. Semantic matches remain independent of letter case.'
+                : searchMode.selected===2 ? 'Match uppercase and lowercase letters exactly in patterns.' : 'Use exact substrings with matching letter case instead of indexed word prefixes.';
+        };
+        const searchSignals=['search-mode','regex-search','semantic-search'].map(key=>settings.connect('changed::'+key,updateSearch));
+        window.connect('close-request',()=>{searchSignals.forEach(id=>settings.disconnect(id));return false;});
+        updateSearch();
         note(search,'Screenshot text','OCR runs locally in the background when the optional local-search runtime is installed.');
         const retention=group('Limits','Archive retention','No count limit is applied unless you explicitly set one here.');
         spin(retention,'Maximum unpinned entries','max-history-items',0,10000000,100,'0 means unlimited. Applied when new entries are captured; pinned entries are protected.');

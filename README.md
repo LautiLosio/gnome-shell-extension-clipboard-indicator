@@ -206,3 +206,12 @@ chunking are future work for larger archives and long documents.
 
 See [FORK.md](FORK.md) for goals and milestones. Original authorship and license
 are preserved in [LICENSE.rst](LICENSE.rst).
+
+Search preferences use a single Keyword, Hybrid, or Regular expression selector.
+Existing installations preserve their previous effective mode, including regex
+precedence, until a mode is selected. Case-sensitive matching changes keyword
+search to exact substrings; in Hybrid mode it affects only keyword results.
+The tray reports the selected mode, with semantic model availability listed
+separately under Storage. Image actions open the system viewer; hover previews
+stay inside the popup. Manual deletion controls do not disable scheduled cleanup
+or retention limits. Action buttons use square, font-relative dimensions.

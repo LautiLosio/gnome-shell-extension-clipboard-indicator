@@ -103,7 +103,7 @@
 .ci-history-row { height: 2.5em; }
 .ci-thumbnail { icon-size: 1.6em; }
 .ci-row-actions { spacing: 0.25em; margin-left: 0.5em; }
-.ci-floating-history .ci-row-action { min-width: 0; min-height: 0; padding: 0.35em; }
+.ci-floating-history .ci-row-action { width: 2em; height: 2em; min-width: 2em; min-height: 2em; padding: 0; margin: 0; }
 /* Menu-leading icons carry spacing that does not belong inside icon buttons. */
 .ci-row-action .ci-action-icon { icon-size: 1.1em; padding: 0; margin: 0; }
 .ci-pin-indicator { icon-size: 1.1em; }

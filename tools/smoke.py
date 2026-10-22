@@ -36,6 +36,9 @@ s=s.replace('this.configureInterval();','''this.configureInterval();
                 console.log('ARCHIVE_SMOKE: visibleActions=' + this.actionActors.filter(a=>a.visible).length);
                 const action=this.actionActors[4].get_first_child();
                 console.log('ARCHIVE_SMOKE: actionSize=' + action.width + 'x' + action.height);
+                for(const box of this.actionActors.filter(a=>a.visible)) for(const button of box.get_children()) {
+                    if(Math.abs(button.width-button.height)>1) throw new Error('Action button is not square: '+button.width+'x'+button.height);
+                }
                 if(++step<points.length) check();
                 else {
                     console.log('ARCHIVE_SMOKE: rowHeight=' + this.rowHeight);

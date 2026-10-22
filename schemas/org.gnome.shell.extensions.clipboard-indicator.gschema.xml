@@ -297,6 +297,7 @@
         <default>true</default>
         <summary>Show the preview button on each image item</summary>
     </key>
+    <key name="search-mode" type="i"><default>1</default><range min="0" max="2"/><summary>Search mode: keyword, hybrid, or regular expression</summary></key>
     <key name="semantic-search" type="b"><default>true</default><summary>Local semantic search</summary></key>
     <key name="prefer-caret" type="b"><default>true</default><summary>Prefer the input caret when available</summary></key>
     <key name="private-mode" type="b"><default>false</default><summary>Pause clipboard capture</summary></key>
