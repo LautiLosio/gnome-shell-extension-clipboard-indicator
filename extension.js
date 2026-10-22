@@ -342,11 +342,16 @@ export default class ClipboardArchive extends Extension {
             ...(this.settings.get_boolean('cache-images')?['image/png','image/jpeg','image/webp','image/gif']:[]),'text/html'];
         try {
             for (let mimetype of types) {
-                const bytes = await new Promise(resolve => this.clipboard.get_content(TYPE,mimetype,(_,data) => resolve(data)));
+                // St.Clipboard owns the native buffer for the duration of this callback.
+                // Convert while it is valid; only JS-owned data crosses the await.
+                const data = await new Promise(resolve => this.clipboard.get_content(TYPE,mimetype,(_,bytes) => {
+                    if (!bytes || !bytes.get_size()) { resolve(null); return; }
+                    resolve(GLib.base64_encode(bytes.get_data()));
+                }));
                 if (this.dead || generation !== this.captureGeneration || this.settings.get_boolean('private-mode')) return;
-                if (!bytes?.get_size()) continue;
+                if (!data) continue;
                 if (mimetype==='UTF8_STRING' || mimetype==='STRING') mimetype='text/plain;charset=utf-8';
-                await this.client.request('add',{mimetype,data:GLib.base64_encode(bytes.get_data())});
+                await this.client.request('add',{mimetype,data});
                 if (this.history.isOpen) this.refresh();
                 break;
             }
