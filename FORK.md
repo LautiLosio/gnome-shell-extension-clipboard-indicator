@@ -3,7 +3,9 @@
 This fork preserves Clipboard Indicator's GNOME workflow while replacing the
 architecture that couples every stored entry to a live Shell menu row.
 
-Status: planning baseline. Runtime behavior is still upstream behavior.
+Status: first experimental implementation. SQLite, bounded result pages, local
+semantic search, OCR, and separate tray/history menus are implemented. See README
+for supported behavior, validation, and remaining limitations.
 Upstream baseline: c880c7fb88dc7232a61a5864d125989a4f375daa.
 
 ## Goals
@@ -19,8 +21,9 @@ Upstream baseline: c880c7fb88dc7232a61a5864d125989a4f375daa.
 
 The extension owns clipboard integration and a bounded menu. A separate local
 service owns a SQLite archive, full-text index, attachment files, thumbnails,
-and background indexing. Communicate asynchronously over a versioned session
-D-Bus API. Query responses contain IDs, short summaries, and thumbnail references;
+and background indexing. Communicate asynchronously over private JSON-line subprocess pipes. The helper
+is owned by the extension; a session D-Bus API remains an option if independent
+clients are added. Query responses contain IDs, short summaries, and thumbnail references;
 full payloads are fetched only when needed. Use stable IDs and cursor pagination.
 
 Start with recent entries and keyword search. Add embeddings and OCR behind a

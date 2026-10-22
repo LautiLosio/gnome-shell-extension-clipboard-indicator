@@ -1,110 +1,101 @@
-# 📋 Clipboard Indicator
+# Clipboard Indicator Fork
 
-[<img src="https://raw.githubusercontent.com/andyholmes/gnome-shell-extensions-badge/eb9af9a1c6f04eb060cb01de6aeb5c84232cd8c0/get-it-on-ego.svg?sanitize=true" width="180" alt="Get it on GNOME Extensions">](https://extensions.gnome.org/extension/779/clipboard-indicator/)
+A fork of [Tudmotu's Clipboard Indicator](https://github.com/Tudmotu/gnome-shell-extension-clipboard-indicator)
+for large local histories and a separate floating history popup.
 
+## Current implementation
 
+- SQLite storage and FTS5 keyword search in a private Python helper process.
+- Incremental writes and content-hash deduplication; no whole-history JSON rewrites.
+- Unlimited retention by default, constrained by available disk space.
+- Thirty results per page, including pinned results. Shell never constructs a row for every stored entry.
+- Local semantic retrieval through FastEmbed and MiniLM, combined with keyword rankings.
+- Background screenshot OCR through RapidOCR and 96-pixel image thumbnails.
+- Separate workers for image indexing, embedding indexing, and semantic queries.
+- A history shortcut opens at the input caret where the application reports it,
+  falling back to the mouse pointer. Placement flips above the anchor near the
+  bottom and respects the monitor work area with a 12-pixel margin.
+- The tray icon opens capture controls, archive status, cleanup, and preferences.
+- Row action icons appear only on the active row, selected by pointer hover or keyboard focus.
 
-The most popular, reliable and feature-rich clipboard manager for GNOME with
-over **2M** downloads.
+All history processing and inference runs locally. The optional setup command
+downloads packages and model weights, not clipboard content. Semantic search
+loads cached weights offline during normal use. The model is strongest in English.
+Image search uses recognized text and tags; visual object similarity is not implemented.
 
-<img src="./screenshot.png" width="400" alt="A screenshot of the clipboard manager, showing clipboard history including images">
+This is an experimental architecture change. The old history-size and cache-size
+settings no longer prune or reset the archive. Explicit clear-on-login and scheduled
+clearing remain opt-in. Disk use includes the optional runtime and models.
 
-This extension is also packaged by the community for many popular Linux distros
-— search your package manager.
+## Install
 
-## 🧰 Features
+Requires GNOME Shell 46–50, Python 3 with SQLite FTS5, GLib tools, and gettext.
+Only GNOME 50 has been smoke-tested for this implementation.
 
-* **Image support** — Copy and paste images in addition to text
-* **Pin items** — Keep important clipboard entries at the top of the menu
-* **Search** — Find clipboard entries with text search, including regex
-* **Edit entries** — Modify existing text entries
-* **Tag entries** — Add custom labels to organize your clipboard
-* **Keyboard shortcuts** — Open/close menu, cycle through entries and activate actions without touching the mouse
-* **Auto-clear history** — Schedule automatic clipboard cleanup at regular intervals or at boot time
-* **Private mode** — Temporarily pause clipboard history when working with sensitive data
-* **Exclude apps** — Prevent clipboard tracking when specific applications are in focus (e.g., password managers)
-* **Highly configurable** — Many more settings to control UI & behavior
-
-### In-Menu Keyboard Controls
-
-- Use arrows to navigate
-- `<Enter>` to select an item
-- `<Delete>` to delete an item
-- `v` to paste directly from menu
-- `p` to pin item
-- `t` to add a tag
-- `h` to preview image
-- `e` to edit entry
-
-### Terminal support
-
-Pasting from the menu works by sending Shift+Insert to programs or Ctrl+Shift+Insert to terminals.
-
-- To use with tmux, add this to your `.tmux.conf`:
-
-  ```bash
-  # Add Ctrl Shift Insert to paste for clipboard-indicator
-  bind -T root C-S-IC {
-    run "tmux send-key \"$(xclip -d ${DISPLAY} -o -selection clipboard)\""
-  }
-  ```
-
-- To use with Ghostty, add this to your `.config/ghostty/config`:
-
-  ```bash
-  # Add Ctrl Shift Insert to paste for clipboard-indicator
-  keybind = ctrl+shift+insert=paste_from_clipboard
-  ```
-
-### Known issues
-
-- Copying large images causes a short freeze
-- Pasting via menu doesn't work for every application
-
-## 📦 Install from source
-
-Installation via git is performed by cloning the repo into your local gnome-shell extensions directory (usually `~/.local/share/gnome-shell/extensions/`):
-
-```bash
-$ git clone https://github.com/Tudmotu/gnome-shell-extension-clipboard-indicator.git <extensions-dir>/clipboard-indicator@tudmotu.com
+```sh
+make all
+# Optional local semantic search and screenshot OCR:
+bash tools/setup_local_search.sh
+make install
 ```
 
-After cloning the repo, the extension is practically installed yet disabled. In order to enable it, run the following command:
+The development UUID is `clipboard-indicator@lautilosio.github.io`. Disable the
+original `clipboard-indicator@tudmotu.com` before enabling the fork to avoid
+competing clipboard listeners and shortcut bindings. Log out and back in after
+installing or replacing extension modules in a running Wayland session.
 
-```bash
-$ gnome-extensions enable clipboard-indicator@tudmotu.com
+The fork uses its own settings path and data directory:
+
+- Settings: `/org/gnome/shell/extensions/clipboard-indicator-fork/`
+- Archive: `$XDG_DATA_HOME/clipboard-indicator@lautilosio.github.io/history.sqlite3`
+- Attachments, model weights, and optional Python runtime live alongside the database.
+
+On first archive startup, the fork imports its legacy JSON cache transactionally
+and records completion. It leaves that cache unchanged. The installed original's
+cache is also left unchanged. Import fails visibly if a referenced attachment is
+missing; repair the legacy file or restore the attachment before retrying.
+
+To return to upstream, disable the fork and enable the original. Entries captured
+by this build remain in the fork database; rollback does not export those entries
+into upstream's JSON cache.
+
+## Controls
+
+Use the existing history shortcut, configurable in Preferences. The default is
+Control+F9. Click or press Enter on a row to copy it; enable Paste on selection to
+paste into the previously focused application. Paste support depends on the app's
+Shift+Insert handling. Arrow keys navigate the current page; use Next and Previous
+for more results. Escape dismisses the popup.
+
+The active row exposes edit or image preview, pin, tag, and delete icons.
+Control+P toggles pinning, Control+T edits the tag, Control+E edits text, and
+Control+Delete deletes the active entry. Deleting pinned entries asks for confirmation.
+
+This build replaces the upstream preferences with controls for the new architecture.
+Regex search, text in the top panel, per-copy notifications, and the old row-visibility
+options are not implemented. Old settings remain stored for rollback.
+
+## Validation
+
+```sh
+python3 -m unittest discover -s tests -v
+node tests/placement.mjs
+python3 tools/benchmark.py
+# After local search setup, using the runtime's Python:
+/path/to/runtime/bin/python tools/test_local_search.py /path/to/models
+bash tools/smoke.sh
 ```
 
-## ✅ GNOME Version Support
+The smoke script runs a separate headless GNOME session with synthetic data and
+isolated settings. It checks populated menus, corner placement, active-row actions,
+preferences construction, and cleanup. The process ends through `timeout`, so exit
+code 124 is expected. Inspect `ARCHIVE_SMOKE` messages and errors in its output.
 
-Depending on your GNOME version, you will need to install the following
-Clipboard Indicator versions:
+Benchmarks cover helper queries at 1k, 10k, and 100k entries. They do not establish
+end-to-end popup latency or frame-stall guarantees. The current semantic vector scan
+is linear in archive size and indexes the first 6,000 characters of each entry.
+Keyword search covers the complete text. An approximate vector index and semantic
+chunking are future work for larger archives and long documents.
 
-* GNOME 46 and above:
-  * Use latest version
-* GNOME 45:
-  * v57
-* GNOME 42-44
-  * v47
-* GNOME 40-41
-  * v39
-* GNOME <40
-  * v37
-
-## ⌨️ Contributing
-
-Contributions to this project are welcome.
-
-Please follow these guidelines when contributing:
-
-- If you want to contribute code, your best bet is to look for an issue with the label "Up for grabs"
-- DO NOT open unsolicited PRs unless they are for updating translations
-- Look at the list of previous PRs before you open a PR, if your PR conflicts with another, it will be rejected
-- If you have a feature idea, open an issue and discuss it there before implementing. DO NOT open a PR as a platform for discussion
-
-### Release Cycle
-
-This project loosely follows the release cycle of GNOME. That means it will
-usually receive 2 updates a year, close to the release of a new major GNOME
-version. If there are features you'd like to implement or suggest, it is advised
-to start the discussion a month or two before a GNOME release.
+See [FORK.md](FORK.md) for goals and milestones. Original authorship and license
+are preserved in [LICENSE.rst](LICENSE.rst).

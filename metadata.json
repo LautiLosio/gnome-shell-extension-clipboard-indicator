@@ -8,7 +8,7 @@
     ],
     "uuid": "clipboard-indicator@lautilosio.github.io",
     "name": "Clipboard Indicator Fork",
-    "description": "Development fork for large clipboard histories. Architecture improvements pending.",
+    "description": "Large local clipboard archive with bounded floating history, keyword search, local semantic search, and screenshot OCR.",
     "url": "https://github.com/LautiLosio/gnome-shell-extension-clipboard-indicator",
     "gettext-domain": "clipboard-indicator",
     "settings-schema": "org.gnome.shell.extensions.clipboard-indicator-fork"

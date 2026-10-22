@@ -97,3 +97,16 @@
     padding: 8px;
     min-width: 384px;
 }
+
+.ci-floating-history { -arrow-rise: 12px; -boxpointer-gap: 8px; }
+.ci-floating-history .popup-menu-content { padding: 8px; }
+.ci-floating-history .popup-menu-item { padding: 8px; spacing: 8px; }
+.ci-archive-scroll { max-height: 285px; }
+.ci-archive-status { font-size: 0.8em; color: #aaa; }
+.ci-archive-action { padding: 6px 12px; border-radius: 4px; background-color: rgba(255,255,255,0.08); }
+.ci-archive-action:focus, .ci-archive-action:hover { background-color: rgba(255,255,255,0.18); }
+
+.ci-floating-history .popup-menu-item { min-height: 28px; }
+.ci-row-actions { spacing: 2px; }
+.ci-row-action { padding: 4px; border-radius: 4px; }
+.ci-row-action:hover, .ci-row-action:focus { background-color: rgba(255,255,255,0.18); }

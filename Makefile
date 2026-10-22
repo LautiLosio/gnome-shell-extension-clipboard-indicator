@@ -1,4 +1,4 @@
-MODULES = *.js locale/*/LC_MESSAGES/*.mo metadata.json stylesheet.css LICENSE.rst README.md schemas/
+MODULES = *.js history_service.py locale/*/LC_MESSAGES/*.mo metadata.json stylesheet.css LICENSE.rst README.md schemas/
 INSTALLPATH=~/.local/share/gnome-shell/extensions/clipboard-indicator@lautilosio.github.io/
 
 all: compile-locales compile-settings
