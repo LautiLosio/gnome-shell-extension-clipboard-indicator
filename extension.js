@@ -2,6 +2,7 @@ import Clutter from 'gi://Clutter';
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import Meta from 'gi://Meta';
+import Pango from 'gi://Pango';
 import Shell from 'gi://Shell';
 import St from 'gi://St';
 import * as AnimationUtils from 'resource:///org/gnome/shell/misc/animationUtils.js';
@@ -34,15 +35,25 @@ export default class ClipboardArchive extends Extension {
         this.dialogs = new DialogManager();
         this.clipboard = St.Clipboard.get_default();
         this.button = new PanelMenu.Button(0.0, 'Clipboard archive');
-        this.button.add_child(new St.Icon({icon_name:'edit-paste-symbolic', style_class:'system-status-icon'}));
+        this.panelBox=new St.BoxLayout({style_class:'panel-status-menu-box'});
+        this.panelIcon=new St.Icon({icon_name:'edit-paste-symbolic',style_class:'system-status-icon'});
+        this.panelLabel=new St.Label({text:'Clipboard',y_align:Clutter.ActorAlign.CENTER});
+        this.panelArrow=PopupMenu.arrowIcon(St.Side.BOTTOM);
+        this.panelBox.add_child(this.panelIcon);this.panelBox.add_child(this.panelLabel);this.panelBox.add_child(this.panelArrow);
+        this.button.add_child(this.panelBox);
         Main.panel.addToStatusArea('clipboardArchive', this.button);
         this.buildSettingsMenu();
         this.buildHistory();
+        this.previewBox=new St.BoxLayout({vertical:true,reactive:false,style_class:'popup-menu-content ci-hover-preview',visible:false});
+        Main.uiGroup.add_child(this.previewBox);
         this.bindShortcuts();
         this.settingsId = this.settings.connect('changed', () => {
             this.bindShortcuts();
             this.privateSwitch.setToggleState(this.settings.get_boolean('private-mode'));
             this.imagesSwitch.setToggleState(this.settings.get_boolean('cache-images'));
+            this.applySettings();
+            this.hidePreview();
+            if(this.history.isOpen) { this.semanticMode=false; this.refresh(); }
         });
         this.caretId = Main.inputMethod.connect('cursor-location-changed', (_, rect) => {
             if (this.history.isOpen) return;
@@ -59,6 +70,7 @@ export default class ClipboardArchive extends Extension {
             await this.client.request('stats');
             if (this.settings.get_boolean('clear-on-boot')) await this.client.request('clear');
         });
+        this.applySettings();
         this.configureInterval();
     }
 
@@ -92,8 +104,8 @@ export default class ClipboardArchive extends Extension {
         this.archiveInfo = new PopupMenu.PopupMenuItem('Archive loading…', {reactive:false});
         this.button.menu.addMenuItem(this.archiveInfo);
         this.button.menu.addAction('Open history', () => this.later(0, () => this.openHistory()));
-        this.button.menu.addAction('Clear unpinned history…', () => this.clear());
-        this.button.menu.addAction('Preferences', () => this.openPreferences());
+        this.clearAction=this.button.menu.addAction('Clear unpinned history…', () => this.clear());
+        this.preferencesAction=this.button.menu.addAction('Preferences', () => this.openPreferences());
         this.button.menu.connect('open-state-changed', (_, open) => {
             if (open) this.run(async () => {
                 const s = await this.client.request('stats');
@@ -111,7 +123,7 @@ export default class ClipboardArchive extends Extension {
         this.history.actor.hide();
         this.manager = new PopupMenu.PopupMenuManager(this.button);
         this.manager.addMenu(this.history);
-        const searchRow = new PopupMenu.PopupBaseMenuItem({reactive:false, can_focus:false});
+        const searchRow = this.searchRow = new PopupMenu.PopupBaseMenuItem({reactive:false, can_focus:false});
         this.search = new St.Entry({hint_text:'Search clipboard history…', can_focus:true, x_expand:true,
             primary_icon:new St.Icon({icon_name:'edit-find-symbolic'})});
         searchRow.add_child(this.search);
@@ -141,7 +153,7 @@ export default class ClipboardArchive extends Extension {
         this.history.addMenuItem(statusRow);
         this.history.actor.connect('key-press-event', (_, event) => this.key(event));
         this.history.connect('open-state-changed', (_, open) => {
-            if (!open) this.generation++;
+            if (!open) { this.generation++; this.hidePreview(); }
         });
     }
 
@@ -160,13 +172,13 @@ export default class ClipboardArchive extends Extension {
         const area = Main.layoutManager.getWorkAreaForMonitor(monitor.index);
         const desktop = new Gio.Settings({schema_id:'org.gnome.desktop.interface'});
         const fontScale = desktop.get_double('text-scaling-factor');
-        const placement = placePopup(x,y,area,460*fontScale,440*fontScale,12);
+        const placement = placePopup(x,y,area,this.settings.get_int('popup-width')*fontScale,this.settings.get_int('popup-height')*fontScale,this.settings.get_int('popup-margin'));
         this.anchor.set_position(placement.x,placement.y);
         this.history.box.set_style(`width: ${placement.width}px;`);
         this.scroll.set_style(`max-height: ${Math.max(40,placement.height-100*fontScale)}px;`);
         this.history._boxPointer.updateArrowSide(placement.above ? St.Side.BOTTOM : St.Side.TOP);
         this.history.open();
-        global.stage.set_key_focus(this.search);
+        if(this.settings.get_boolean('show-search-bar')) global.stage.set_key_focus(this.search);
         this.refresh();
     }
 
@@ -187,11 +199,11 @@ export default class ClipboardArchive extends Extension {
         // Lexical results appear first even while an embedding query is expensive.
         this.run(async () => {
             try {
-            const reply = await this.client.request('query',{q,offset:this.offset,limit:PAGE,semantic:this.semanticMode || false});
+            const reply = await this.client.request('query',{q,offset:this.offset,limit:PAGE,semantic:this.semanticMode || false,...this.searchOptions()});
             if (this.dead || token !== this.generation || !this.history.isOpen) return;
             this.render(reply,reset);
-            if (q && this.offset === 0 && this.settings.get_boolean('semantic-search') && !this.semanticMode) {
-                const hybrid = await this.client.request('query',{q,limit:PAGE,semantic:true});
+            if (q && this.offset === 0 && this.settings.get_boolean('semantic-search') && !this.semanticMode && !this.settings.get_boolean('regex-search')) {
+                const hybrid = await this.client.request('query',{q,limit:PAGE,semantic:true,...this.searchOptions()});
                 if (!this.dead && token === this.generation && this.history.isOpen) { this.semanticMode=true; this.render(hybrid,true); }
             }
             } finally {
@@ -205,6 +217,7 @@ export default class ClipboardArchive extends Extension {
     }
 
     render(reply,reset = false) {
+        this.hidePreview();
         this.rendering=true;
         const oldFocus=global.stage.key_focus;
         const focus=this.pendingFocus ?? (oldFocus && this.rowActors?.some(a=>a.contains(oldFocus)) ? this.renderOffset+this.selected : null);
@@ -219,7 +232,7 @@ export default class ClipboardArchive extends Extension {
         this.actionActors = [];
         this.selected = focus === null ? 0 : Math.max(0,Math.min(this.rows.length-1,focus-this.offset));
         for (const [index,entry] of this.rows.entries()) {
-            const label = entry.mimetype.startsWith('image/') ? 'Image' : entry.preview.replace(/\s+/g,' ');
+            const label = entry.mimetype.startsWith('image/') ? 'Image' : [...entry.preview.replace(/\s+/g,' ')].slice(0,this.settings.get_int('preview-size')).join('');
             const item = new PopupMenu.PopupMenuItem(label || '(empty text)');
             item.add_style_class_name('ci-history-row');
             if (entry.favorite) item.insert_child_at_index(new St.Icon({icon_name:'view-pin-symbolic',style_class:'popup-menu-icon ci-pin-indicator',accessible_name:'Pinned'}),1);
@@ -231,9 +244,10 @@ export default class ClipboardArchive extends Extension {
             item.track_hover=true;
             const active = () => this.setActive(index);
             item.connect('key-focus-in', () => { active(); AnimationUtils.ensureActorVisibleInScrollView(this.scroll,item); });
-            item.connect('notify::hover', () => { if(item.hover) active(); });
+            item.connect('notify::hover', () => { if(item.hover) active(); else if(!item.contains(global.stage.key_focus)) this.hidePreview(); });
             const actions=new St.BoxLayout({style_class:'ci-row-actions',visible:index===this.selected,y_align:Clutter.ActorAlign.CENTER});
-            const action=(icon,label,callback,checked=false) => {
+            const action=(icon,label,callback,checked=false,key=null) => {
+                if(key && !this.settings.get_boolean(key)) return;
                 const button=new St.Button({can_focus:true,style_class:'button flat ci-row-action',accessible_name:label,y_align:Clutter.ActorAlign.CENTER,
                     child:new St.Icon({icon_name:icon,style_class:'ci-action-icon'})});
                 if (checked) button.add_style_pseudo_class('checked');
@@ -241,19 +255,20 @@ export default class ClipboardArchive extends Extension {
                 button.connect('key-focus-in',active);
                 actions.add_child(button);
             };
-            if(entry.mimetype.startsWith('image/')) action('view-reveal-symbolic','Preview image',async () => {
+            if(entry.mimetype.startsWith('image/') && this.settings.get_boolean('show-preview-button')) action('view-reveal-symbolic','Preview image',async () => {
                 const result=await this.client.request('file',{entry:entry.id});
                 this.history.close();
                 Gio.AppInfo.launch_default_for_uri_async(result.uri,null,null,(_,res) => {
                     try { Gio.AppInfo.launch_default_for_uri_finish(res); } catch(error) { console.error(error.message); }
                 });
             });
-            else action('document-edit-symbolic','Edit',() => this.edit(entry,false));
+            else if(!entry.mimetype.startsWith('image/') && this.settings.get_boolean('show-edit-button')) action('document-edit-symbolic','Edit',() => this.edit(entry,false));
             action('view-pin-symbolic',entry.favorite?'Unpin':'Pin',async () => {
                 await this.client.request('update',{entry:entry.id,favorite:!entry.favorite}); this.semanticMode=false; this.refresh();
-            },entry.favorite);
-            action('bookmark-new-symbolic','Tag',() => this.edit(entry,true));
-            action('edit-delete-symbolic','Delete',() => this.deleteEntry(entry));
+            },entry.favorite,'show-pin-button');
+            action('bookmark-new-symbolic','Tag',() => this.edit(entry,true),false,'show-tag-button');
+            if(this.settings.get_boolean('enable-deletion')) action('edit-delete-symbolic','Delete',() => this.deleteEntry(entry),false,'show-delete-button');
+            action('edit-paste-symbolic','Paste',() => this.select(entry,true,true),false,'paste-button');
             item.add_child(actions);
             this.actionActors.push(actions);
             this.results.addMenuItem(item);
@@ -285,6 +300,7 @@ export default class ClipboardArchive extends Extension {
     }
 
     onScroll() {
+        this.hidePreview();
         if(this.rendering || !this.history.isOpen || !this.total || !this.rowHeight) return;
         const first=Math.floor(this.adjustment.value/this.rowHeight);
         const visible=Math.ceil(this.adjustment.page_size/this.rowHeight);
@@ -297,7 +313,67 @@ export default class ClipboardArchive extends Extension {
 
     setActive(index) {
         this.selected=index;
+        this.schedulePreview(index);
         this.actionActors?.forEach((actor,i) => { actor.visible=i===index; });
+    }
+
+    hidePreview() {
+        this.previewSerial=(this.previewSerial || 0)+1;
+        this.previewEntry=null;
+        if(this.previewTimer && this.sources.delete(this.previewTimer)) GLib.source_remove(this.previewTimer);
+        this.previewTimer=null;
+        this.previewBox?.hide();
+        this.previewBox?.destroy_all_children();
+    }
+
+    schedulePreview(index) {
+        const entry=this.rows[index];
+        if(!entry || !this.settings.get_boolean('hover-preview') || this.previewEntry===entry.id) return;
+        this.hidePreview();
+        this.previewEntry=entry.id;
+        const serial=this.previewSerial;
+        this.previewTimer=this.later(this.settings.get_int('hover-preview-delay'),() => {
+            this.previewTimer=null;
+            this.client.request('preview',{entry:entry.id}).then(result => {
+                if(this.dead || serial!==this.previewSerial || !this.history.isOpen) return;
+                const row=this.rowActors[index];
+                if(!row?.get_stage()) return;
+                const scale=new Gio.Settings({schema_id:'org.gnome.desktop.interface'}).get_double('text-scaling-factor');
+                const [rx,ry]=row.get_transformed_position();
+                const monitor=Main.layoutManager.monitors.find(m=>rx>=m.x && rx<m.x+m.width && ry>=m.y && ry<m.y+m.height) || Main.layoutManager.primaryMonitor;
+                if(!monitor) return;
+                const area=Main.layoutManager.getWorkAreaForMonitor(monitor.index);
+                const width=Math.min(400*scale,area.width-48);
+                this.previewBox.set_style(`width: ${width}px;`);
+                if(result.image) {
+                    const imageScale=Math.min(1,(width-24)/result.width,(area.height/2)/result.height);
+                    this.previewBox.add_child(new St.Icon({gicon:Gio.icon_new_for_string(result.image),
+                        width:result.width*imageScale,height:result.height*imageScale,icon_size:Math.max(result.width,result.height)*imageScale}));
+                } else {
+                    const lines=result.text.split('\n');
+                    let text=lines.slice(0,12).join('\n');
+                    if(result.truncated || lines.length>12) text+='\n…';
+                    const label=new St.Label({text});
+                    label.clutter_text.set_line_wrap(true);
+                    label.clutter_text.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR);
+                    label.clutter_text.set_ellipsize(Pango.EllipsizeMode.END);
+                    label.set_style(`max-height: ${Math.min(280*scale,area.height/2)}px;`);
+                    this.previewBox.add_child(label);
+                }
+                this.previewBox.show();
+                const [mw,mh]=this.previewBox.get_preferred_width(-1);
+                const w=Math.max(mw,mh);
+                const h=this.previewBox.get_preferred_height(w)[1];
+                const [hx]=this.history.actor.get_transformed_position();
+                let x=hx+this.history.actor.width+8;
+                if(x+w>area.x+area.width-12) x=hx-w-8;
+                x=Math.max(area.x+12,Math.min(x,area.x+area.width-w-12));
+                const y=Math.max(area.y+12,Math.min(ry,area.y+area.height-h-12));
+                this.previewBox.set_position(x,y);
+            }).catch(error => {
+                if(!this.dead && serial===this.previewSerial) { this.hidePreview(); console.error(`Clipboard preview: ${error.message}`); }
+            });
+        });
     }
 
     key(event) {
@@ -337,7 +413,8 @@ export default class ClipboardArchive extends Extension {
             await this.client.request('delete',{entry:entry.id});
             if (this.history.isOpen) this.refresh();
         });
-        if (entry.favorite) {
+        if(!this.settings.get_boolean('enable-deletion')) return;
+        if (entry.favorite && this.settings.get_boolean('confirm-pinned-delete')) {
             this.history.close();
             this.dialogs.open('Delete pinned item?','','','Delete','Cancel',remove);
         } else remove();
@@ -366,15 +443,17 @@ export default class ClipboardArchive extends Extension {
         });
     }
 
-    async select(entry, paste = true) {
+    async select(entry, paste = true, forcePaste = false) {
         const payload = await this.client.request('get',{entry:entry.id});
         if (this.dead) return;
         this.history.close();
         this.currentId=entry.id;
+        if(this.settings.get_boolean('move-item-first')) await this.client.request('touch',{entry:entry.id});
+        this.updatePanel(entry.id);
         this.skipCapture = true;
         this.clipboard.set_content(TYPE,payload.mimetype,new GLib.Bytes(GLib.base64_decode(payload.data)));
         this.later(80, () => {
-            if (paste && this.settings.get_boolean('paste-on-select')) {
+            if (forcePaste || (paste && this.settings.get_boolean('paste-on-select'))) {
                 const terminal = this.keyboard.purpose === Clutter.InputContentPurpose.TERMINAL;
                 if (terminal) this.keyboard.press(Clutter.KEY_Control_L);
                 this.keyboard.press(Clutter.KEY_Shift_L); this.keyboard.press(Clutter.KEY_Insert);
@@ -398,22 +477,73 @@ export default class ClipboardArchive extends Extension {
                 // Convert while it is valid; only JS-owned data crosses the await.
                 const data = await new Promise(resolve => this.clipboard.get_content(TYPE,mimetype,(_,bytes) => {
                     if (!bytes || !bytes.get_size()) { resolve(null); return; }
-                    resolve(GLib.base64_encode(bytes.get_data()));
+                    let payload=bytes.get_data();
+                    if(mimetype.startsWith('text/') || mimetype==='STRING' || mimetype==='UTF8_STRING') {
+                        if(this.settings.get_boolean('strip-text')) payload=new TextEncoder().encode(new TextDecoder().decode(payload).trim());
+                    }
+                    resolve(GLib.base64_encode(payload));
                 }));
                 if (this.dead || generation !== this.captureGeneration || this.settings.get_boolean('private-mode')) return;
                 if (!data) continue;
                 if (mimetype==='UTF8_STRING' || mimetype==='STRING') mimetype='text/plain;charset=utf-8';
-                await this.client.request('add',{mimetype,data});
+                const saved=await this.client.request('add',{mimetype,data,maximum:this.settings.get_int('max-history-items')});
+                this.currentId=saved.id;
+                this.updatePanel(saved.id);
+                if(this.settings.get_boolean('notify-on-copy')) Main.notify('Clipboard archive','Saved clipboard item');
+                if(this.settings.get_boolean('blink-icon-on-copy')) { this.panelIcon.opacity=80; this.later(140,()=>{this.panelIcon.opacity=255;}); }
                 if (this.history.isOpen) this.refresh();
                 break;
             }
         } catch (error) { if (!this.dead) console.error(`Clipboard capture: ${error.message}`); }
     }
 
+    searchOptions() {
+        return {case_sensitive:this.settings.get_boolean('case-sensitive-search'),regex:this.settings.get_boolean('regex-search'),pinned_bottom:this.settings.get_boolean('pinned-on-bottom')};
+    }
+
+    applySettings() {
+        const mode=this.settings.get_int('display-mode');
+        this.button.visible=mode!==3;
+        this.panelIcon.visible=mode===0 || mode===2;
+        this.panelLabel.visible=mode===1 || mode===2;
+        this.panelArrow.visible=!this.settings.get_boolean('disable-down-arrow');
+        this.privateSwitch.visible=this.settings.get_boolean('show-private-mode');
+        if(this.clearAction) this.clearAction.visible=this.settings.get_boolean('show-clear-history-button') && this.settings.get_boolean('enable-deletion');
+        if(this.preferencesAction) this.preferencesAction.visible=this.settings.get_boolean('show-settings-button');
+        this.searchRow.visible=this.settings.get_boolean('show-search-bar');
+        if(!this.searchRow.visible) this.search.text='';
+        if(this.currentId) this.updatePanel(this.currentId);
+    }
+
+    updatePanel(id) {
+        if(this.settings.get_boolean('private-mode')) { this.panelLabel.text='Private mode'; return; }
+        if(this.settings.get_int('display-mode')===0) return;
+        this.run(async () => {
+            const item=await this.client.request('summary',{entry:id});
+            if(this.dead || !item || id!==this.currentId || this.settings.get_boolean('private-mode')) return;
+            this.panelLabel.text=item.mimetype.startsWith('image/') ? 'Image' : [...item.text.replace(/\s+/g,' ')].slice(0,this.settings.get_int('topbar-preview-size')).join('');
+        });
+    }
+
+    async clearArchive() {
+        const keep=this.settings.get_boolean('keep-selected-on-clear');
+        await this.client.request('clear',{keep:keep ? this.currentId : null});
+        if(this.dead) return;
+        if(!keep) {
+            this.skipCapture=true;
+            this.clipboard.set_text(TYPE,'');
+            this.panelLabel.text='Clipboard';
+            this.later(100,()=>{this.skipCapture=false;});
+        }
+        if(this.settings.get_boolean('notify-on-clear')) Main.notify('Clipboard archive','Unpinned history cleared');
+    }
+
     clear() {
+        if(!this.settings.get_boolean('enable-deletion')) return;
         this.history.close();
-        this.dialogs.open('Clear unpinned history?', 'Pinned entries will be kept.', '', 'Clear','Cancel',
-            () => this.run(() => this.client.request('clear')));
+        const clear=()=>this.run(()=>this.clearArchive());
+        if(this.settings.get_boolean('confirm-clear')) this.dialogs.open('Clear unpinned history?', 'Pinned entries will be kept.', '', 'Clear','Cancel',clear);
+        else clear();
     }
 
     configureInterval() {
@@ -425,7 +555,7 @@ export default class ClipboardArchive extends Extension {
                 this.lastClear ??=now;
                 if (now-this.lastClear >= this.settings.get_int('clear-history-interval')*60000) {
                     this.lastClear=now;
-                    this.run(() => this.client.request('clear'));
+                    this.run(() => this.clearArchive());
                 }
             } else this.lastClear=null;
             return GLib.SOURCE_CONTINUE;
@@ -434,8 +564,8 @@ export default class ClipboardArchive extends Extension {
 
     cycle(direction) {
         this.run(async () => {
-            const entry=await this.client.request('cycle',{entry:this.currentId,direction});
-            if (entry) await this.select(entry,false);
+            const entry=await this.client.request('cycle',{entry:this.currentId,direction,pinned_bottom:this.settings.get_boolean('pinned-on-bottom')});
+            if (entry) { await this.select(entry,false); if(this.settings.get_boolean('notify-on-cycle')) Main.notify('Clipboard archive','Selected another history item'); }
         });
     }
 
@@ -456,6 +586,8 @@ export default class ClipboardArchive extends Extension {
 
     disable() {
         if (this.dead) return;
+        this.hidePreview();
+        this.previewBox?.destroy();
         this.dead=true;
         this.generation++;
         this.captureGeneration++;

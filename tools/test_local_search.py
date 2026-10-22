@@ -43,7 +43,11 @@ with tempfile.TemporaryDirectory() as folder:
   assert reply['items'][0]['id']==1,reply
   assert Path(ocr['items'][0]['thumbnail']).exists()
   assert len(ocr['items'])==1
+  preview=request('preview',entry=3)
+  assert preview['width']<=384 and preview['height']<=256
+  assert Path(preview['image']).exists()
   request('delete',entry=3)
+  assert not Path(preview['image']).exists()
   assert not request('query',q='Clipboard search')['items']
   for i in range(80):
    request('add',mimetype='text/plain',data=base64.b64encode(f'Automobile engine maintenance note {i}'.encode()).decode())

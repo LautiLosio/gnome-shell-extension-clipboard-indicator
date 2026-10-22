@@ -34,6 +34,8 @@ s=s.replace('this.configureInterval();','''this.configureInterval();
                 console.log('ARCHIVE_SMOKE: corner=' + step + ',rows=' + this.rows.length + ',popup=' + [x,y,w,h]);
                 this.setActive(4);
                 console.log('ARCHIVE_SMOKE: visibleActions=' + this.actionActors.filter(a=>a.visible).length);
+                const action=this.actionActors[4].get_first_child();
+                console.log('ARCHIVE_SMOKE: actionSize=' + action.width + 'x' + action.height);
                 if(++step<points.length) check();
                 else {
                     console.log('ARCHIVE_SMOKE: rowHeight=' + this.rowHeight);
@@ -45,10 +47,16 @@ s=s.replace('this.configureInterval();','''this.configureInterval();
                         this.later(700,() => {
                             console.log('ARCHIVE_SMOKE: scrollBack offset=' + this.renderOffset);
                             if(this.renderOffset!==0) throw new Error('Reverse scrolling failed');
-                            this.history.close();
-                            this.button.menu.open();
-                            console.log('ARCHIVE_SMOKE: settings=' + this.button.menu.isOpen);
-                            this.later(500, () => {
+                            this.setActive(4);
+                            this.later(600,()=>{
+                                console.log('ARCHIVE_SMOKE: hoverPreview=' + this.previewBox.visible);
+                                if(!this.previewBox.visible) throw new Error('Hover preview did not open');
+                                this.hidePreview();
+                            });
+                            this.later(800,()=>{this.history.close();});
+                            this.later(850,()=>{this.button.menu.open();});
+                            this.later(900,()=>console.log('ARCHIVE_SMOKE: settings=' + this.button.menu.isOpen));
+                            this.later(1100, () => {
                                 this.button.menu.close();
                                 this.openPreferences();
                                 this.later(1000, () => { this.disable(); console.log('ARCHIVE_SMOKE: disabled'); });

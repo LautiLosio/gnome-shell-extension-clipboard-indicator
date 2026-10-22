@@ -82,6 +82,37 @@ class ArchiveTests(unittest.TestCase):
         back=self.archive.dispatch({'op':'cycle','entry':neighbor['id'],'direction':-1})
         self.assertEqual(back['id'],newest)
 
+    def test_case_regex_and_pinned_order(self):
+        first=self.add('Audio Repair')
+        second=self.add('audio cable')
+        self.archive.dispatch({'op':'update','entry':first,'favorite':True})
+        self.assertEqual(self.archive.query('Audio',case_sensitive=True)['items'][0]['id'],first)
+        self.assertEqual(len(self.archive.query('Audio',case_sensitive=True)['items']),1)
+        self.assertEqual(self.archive.query(pinned_bottom=True)['items'][-1]['id'],first)
+        self.assertEqual(len(self.archive.query('^audio',regex=True)['items']),2)
+        self.assertEqual(len(self.archive.query('^Audio',regex=True,case_sensitive=True)['items']),1)
+        with self.assertRaises(ValueError): self.archive.query('[',regex=True)
+    def test_regex_deadline_does_not_break_archive(self):
+        self.add('a'*5000+'!')
+        with self.assertRaisesRegex(ValueError,'one-second'):
+            self.archive.query('(a+)+$',regex=True)
+        self.assertTrue(self.archive.query()['items'])
+    def test_optional_retention_and_selected_clear(self):
+        pinned=self.add('keep pinned')
+        self.archive.dispatch({'op':'update','entry':pinned,'favorite':True})
+        self.add('old unpinned')
+        saved=self.archive.dispatch({'op':'add','mimetype':'text/plain','data':base64.b64encode(b'latest').decode(),'maximum':1})['id']
+        self.assertEqual(self.archive.query()['total'],2)
+        self.archive.dispatch({'op':'clear','keep':saved})
+        self.assertEqual(self.archive.query()['total'],2)
+        self.archive.dispatch({'op':'clear'})
+        self.assertEqual(self.archive.query()['total'],1)
+    def test_preview_text_is_bounded(self):
+        entry=self.add('long text '*2000)
+        preview=self.archive.dispatch({'op':'preview','entry':entry})
+        self.assertEqual(len(preview['text']),4000)
+        self.assertTrue(preview['truncated'])
+
     def test_search_punctuation_is_safe(self):
         self.add('https://example.com/hello?q=1')
         self.assertTrue(self.archive.query('example.com')['items'])

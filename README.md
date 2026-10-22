@@ -40,7 +40,7 @@ performance claims are limited to the measurements described below.
 | Screen edges | Existing GNOME popup placement behavior | Placement flips above the anchor when needed and uses monitor work areas with a 12-pixel margin |
 | Tray icon | Opens the history menu | Opens quick settings, archive status, cleanup, and preferences; also offers an Open history action |
 | Row actions | Actions are constructed for each entry and controlled by visibility settings | Action icons are shown only on the hovered or keyboard-selected row |
-| Retention | Configured history-entry limit and a registry-file size check | No automatic count or size eviction; history grows until explicitly cleared or disk space runs out |
+| Retention | Configured history-entry limit and a registry-file size check | Unlimited by default; optional unpinned entry-retention limit. No total-disk quota yet |
 | Development isolation | Original UUID and settings/cache locations | Separate fork UUID, settings path, and SQLite data directory |
 
 The fork keeps the original project's core workflow: clipboard capture, text and
@@ -72,7 +72,8 @@ Unlimited retention does not mean unlimited resources. The archive, attachments,
 models, and optional Python runtime consume disk space. Semantic retrieval still
 scans stored vectors linearly and indexes only the first 6,000 characters of each
 entry; keyword search covers the full text. Approximate vector indexing, semantic
-chunking, disk quotas, and broader end-to-end latency measurements remain future work.
+chunking, disk quotas, and broader end-to-end latency measurements remain future work. An optional
+entry-count retention limit is available under Limits, with 0 meaning unlimited.
 
 ### Copy-time lag and upstream issue #428
 
@@ -148,11 +149,30 @@ The active row exposes edit or image preview, pin, tag, and delete icons.
 The pin action and pinned indicator use the same native pin symbol. The action
 has a checked state when pinned and an accessible Pin or Unpin label.
 Control+P toggles pinning, Control+T edits the tag, Control+E edits text, and
-Control+Delete deletes the active entry. Deleting pinned entries asks for confirmation.
+Control+Delete deletes the active entry. Confirmation behavior is configurable.
 
-This build replaces the upstream preferences with controls for the new architecture.
-Regex search, text in the top panel, per-copy notifications, and the old row-visibility
-options are not implemented. Old settings remain stored for rollback.
+## Preferences
+
+The original tab organization is restored: UI, Behavior, Search, Limits,
+Exclusion, Topbar, Notifications, and Shortcuts. Applicable original controls are
+connected to the new implementation: row-action visibility, paste behavior, pin
+ordering, whitespace trimming, cleanup and confirmations, notifications, panel
+text and icon display, exclusions, and all five global shortcuts. Regex searches
+run in a separate process with a one-second deadline; case-sensitive searches
+use exact substring matching.
+
+New controls cover popup dimensions, caret positioning, hover-preview delay,
+local semantic search, and optional unpinned-entry retention. Defaults retain
+unlimited history. The original JSON megabyte limit does not apply to SQLite,
+and session-only unpinned storage is not implemented; the Limits tab states this
+explicitly rather than exposing ineffective switches. Old values remain saved
+for rollback.
+
+Hover previews show bounded multiline text or an on-demand image preview beside
+the active row. They are canceled when the row changes, the list scrolls, or the
+popup closes. This feature is inspired by [ajithakdev's hover-preview contribution,
+collected in capaj's fork](https://github.com/capaj/gnome-shell-extension-clipboard-indicator/commit/d4a51e4d45995ae7e02d6175ef844712fe6a292c).
+Its rendering and loading were adapted to this fork's virtual list and helper process.
 
 ## Validation
 

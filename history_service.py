@@ -10,6 +10,7 @@ from pathlib import Path
 import re
 import sqlite3
 import sys
+import subprocess
 import threading
 import time
 
@@ -99,26 +100,37 @@ class Archive:
         return self.db.execute('''INSERT INTO entries(digest,mimetype,text,path,favorite,tag,created,used)
             VALUES(?,?,?,?,?,?,?,?)''', (digest,mime,text,path,int(favorite),tag,stamp,stamp)).lastrowid
 
-    def query(self, q='', limit=30, offset=0, semantic=False):
+    def query(self, q='', limit=30, offset=0, semantic=False, case_sensitive=False, regex=False, pinned_bottom=False):
         limit = max(1, min(int(limit), 90))
         offset = max(0, int(offset))
+        if regex:
+            try:
+                completed=subprocess.run([sys.executable,__file__,'--regex',str(self.root/'history.sqlite3'),q,str(limit),str(offset),str(int(case_sensitive)),str(int(pinned_bottom))],capture_output=True,text=True,timeout=1)
+            except subprocess.TimeoutExpired: raise ValueError('Regex search exceeded its one-second limit')
+            if completed.returncode: raise ValueError('Invalid regular expression')
+            return json.loads(completed.stdout)
+        pin_order='ASC' if pinned_bottom else 'DESC'
         fields = "e.id,e.mimetype,substr(e.text,1,180) AS preview,e.favorite,substr(e.tag,1,80) AS tag,e.used,e.thumbnail"
         tokens = re.findall(r'\w+', q, re.UNICODE)[:64]
         args = []
-        if tokens:
+        if case_sensitive and q:
+            source,where,order='entries e',' WHERE instr(e.text,?)>0 OR instr(e.tag,?)>0',f'e.favorite {pin_order},e.used DESC,e.id DESC'
+            args=[q,q]
+        elif tokens:
             match = ' AND '.join('"' + t.replace('"','""') + '"*' for t in tokens)
             source = 'search JOIN entries e ON e.id=search.rowid'
             where = ' WHERE search MATCH ?'
             args.append(match)
-            order = 'e.favorite DESC,rank,e.used DESC,e.id DESC'
+            order = f'e.favorite {pin_order},rank,e.used DESC,e.id DESC'
         else:
-            source, where, order = 'entries e', '', 'e.favorite DESC,e.used DESC,e.id DESC'
+            source, where, order = 'entries e', '', f'e.favorite {pin_order},e.used DESC,e.id DESC'
         rows = [dict(r) for r in self.db.execute(f'SELECT {fields} FROM {source}{where} ORDER BY {order} LIMIT ? OFFSET ?', (*args,limit+1,offset))]
         more = len(rows) > limit
         rows = rows[:limit]
         total = self.db.execute(f'SELECT count(*) FROM {source}{where}',args).fetchone()[0]
+        cache_key=(q,case_sensitive,pinned_bottom)
         if semantic and q and self.semantic is not None:
-            if offset == 0 or q not in self.search_cache:
+            if offset == 0 or cache_key not in self.search_cache:
                 # Model inference and vector scan run in the helper, never Shell.
                 import numpy as np
                 vector = next(self.semantic.query_embed(q)).astype(np.float32)
@@ -134,9 +146,11 @@ class Archive:
                 for i,(_,ident) in enumerate(scores):
                     lexical[ident] = lexical.get(ident,0) + 1/(60+i)
                 ids = sorted(lexical, key=lexical.get, reverse=True)
+                pinned={r[0] for r in self.db.execute('SELECT id FROM entries WHERE favorite=1')}
+                ids.sort(key=lambda ident: (ident in pinned) if pinned_bottom else (ident not in pinned))
                 self.search_cache.clear()
-                self.search_cache[q] = ids
-            ids = self.search_cache.get(q, [])
+                self.search_cache[cache_key] = ids
+            ids = self.search_cache.get(cache_key, [])
             total = len(ids)
             rows = []
             for ident in ids[offset:offset+limit]:
@@ -222,16 +236,17 @@ class Archive:
 
     def dispatch(self, request):
         op = request['op']
-        if op == 'query': return self.query(**{k:v for k,v in request.items() if k in ('q','limit','offset','semantic')})
+        if op == 'query': return self.query(**{k:v for k,v in request.items() if k in ('q','limit','offset','semantic','case_sensitive','regex','pinned_bottom')})
         if op == 'cycle':
-            current = self.db.execute('SELECT favorite,used,id FROM entries WHERE id=?',(request.get('entry'),)).fetchone()
+            sign=-1 if request.get('pinned_bottom') else 1
+            current = self.db.execute(f'SELECT {sign}*favorite AS favorite,used,id FROM entries WHERE id=?',(request.get('entry'),)).fetchone()
             forward = request.get('direction',1) > 0
             comparison,order = ('<','DESC') if forward else ('>','ASC')
             row = None
             if current:
-                row = self.db.execute(f'SELECT id FROM entries WHERE (favorite,used,id){comparison}(?,?,?) ORDER BY favorite {order},used {order},id {order} LIMIT 1',tuple(current)).fetchone()
+                row = self.db.execute(f'SELECT id FROM entries WHERE ({sign}*favorite,used,id){comparison}(?,?,?) ORDER BY {sign}*favorite {order},used {order},id {order} LIMIT 1',tuple(current)).fetchone()
             if row is None:
-                row = self.db.execute(f'SELECT id FROM entries ORDER BY favorite {order},used {order},id {order} LIMIT 1').fetchone()
+                row = self.db.execute(f'SELECT id FROM entries ORDER BY {sign}*favorite {order},used {order},id {order} LIMIT 1').fetchone()
             return dict(row) if row else None
         if op == 'stats':
             return {'count': self.db.execute('SELECT count(*) FROM entries').fetchone()[0],
@@ -239,11 +254,36 @@ class Archive:
                     'semantic': self.semantic_status}
         with self.db:
             if op == 'add':
-                return {'id': self.add(request['mimetype'],base64.b64decode(request['data'],validate=True))}
+                ident=self.add(request['mimetype'],base64.b64decode(request['data'],validate=True))
+                maximum=max(0,int(request.get('maximum',0)))
+                if maximum:
+                    self._delete('favorite=0 AND id NOT IN (SELECT id FROM entries WHERE favorite=0 ORDER BY used DESC,id DESC LIMIT ?)',(maximum,))
+                return {'id':ident}
             if op == 'file':
                 row = self.db.execute('SELECT path FROM entries WHERE id=?',(request['entry'],)).fetchone()
                 if not row or not row['path']: raise ValueError('Entry is not an image')
                 return {'uri':Path(row['path']).as_uri()}
+            if op == 'preview':
+                row = self.db.execute('SELECT text,path,tag,mimetype FROM entries WHERE id=?',(request['entry'],)).fetchone()
+                if row is None: raise ValueError('Entry no longer exists')
+                if not row['path']:
+                    return {'text':row['text'][:4000], 'truncated':len(row['text'])>4000}
+                from PIL import Image
+                preview = Path(row['path']+'.preview.png')
+                if not preview.exists():
+                    with Image.open(row['path']) as image:
+                        image.thumbnail((384,256))
+                        temporary=Path(str(preview)+'.tmp')
+                        image.convert('RGBA').save(temporary,format='PNG')
+                        temporary.replace(preview)
+                with Image.open(preview) as image: width,height=image.size
+                return {'image':str(preview),'width':width,'height':height}
+            if op == 'summary':
+                row = self.db.execute('SELECT substr(text,1,100) text,mimetype,thumbnail FROM entries WHERE id=?',(request['entry'],)).fetchone()
+                return dict(row) if row else None
+            if op == 'touch':
+                self.db.execute('UPDATE entries SET used=? WHERE id=?',(time.time_ns()//1000,request['entry']))
+                return {}
             if op == 'get':
                 row = self.db.execute('SELECT * FROM entries WHERE id=?',(request['entry'],)).fetchone()
                 if row is None: raise ValueError('Entry no longer exists')
@@ -265,7 +305,7 @@ class Archive:
                 self._delete('id=?',(request['entry'],))
                 return {}
             if op == 'clear':
-                self._delete('favorite=0',())
+                self._delete('favorite=0 AND id<>?',(request.get('keep') or -1,))
                 return {}
         raise ValueError('Unknown operation')
 
@@ -274,7 +314,25 @@ class Archive:
         self.db.execute('DELETE FROM entries WHERE '+where,args)
         # Commit first. A crash can leave an orphan file, never a missing retained payload.
         self.db.commit()
-        for path in paths: Path(path).unlink(missing_ok=True)
+        for path in paths:
+            Path(path).unlink(missing_ok=True)
+            Path(path+'.preview.png').unlink(missing_ok=True)
+
+
+def regex_query():
+    database,q,limit,offset,sensitive,pinned_bottom=sys.argv[2:]
+    pattern=re.compile(q,0 if sensitive=='1' else re.IGNORECASE)
+    db=sqlite3.connect('file:'+database+'?mode=ro',uri=True)
+    db.row_factory=sqlite3.Row
+    order='ASC' if pinned_bottom=='1' else 'DESC'
+    items=[]
+    count=0
+    for row in db.execute(f'SELECT id,mimetype,text,favorite,tag,used,thumbnail FROM entries ORDER BY favorite {order},used DESC,id DESC'):
+        if pattern.search(row['text']) or pattern.search(row['tag']):
+            if int(offset)<=count<int(offset)+int(limit):
+                item=dict(row);item['preview']=item.pop('text')[:180];items.append(item)
+            count+=1
+    print(json.dumps({'items':items,'more':count>int(offset)+int(limit),'total':count,'semantic':'regex'}))
 
 
 def main():
@@ -295,6 +353,7 @@ def main():
                 # Each search worker owns its SQLite connection. Capture and lexical
                 # requests keep running while semantic inference scans the archive.
                 target = object.__new__(Archive)
+                target.root = archive.root
                 target.db = sqlite3.connect(archive.root/'history.sqlite3', timeout=10)
                 target.db.row_factory = sqlite3.Row
                 connection = target.db
@@ -302,7 +361,7 @@ def main():
                 target.semantic = archive.semantic
                 target.semantic_status = archive.semantic_status
             result = {'id':request['id'],'result':target.dispatch(request)}
-            if request.get('op') in ('add','update','delete','clear'):
+            if request.get('op') in ('add','update','delete','clear','touch'):
                 archive.search_cache.clear()
         except Exception as error:
             result = {'id':request.get('id'),'error':str(error)}
@@ -326,4 +385,6 @@ def main():
     archive.stop.set()
 
 
-if __name__ == '__main__': main()
+if __name__ == '__main__':
+    if len(sys.argv)>1 and sys.argv[1]=='--regex': regex_query()
+    else: main()

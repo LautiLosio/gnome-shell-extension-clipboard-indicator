@@ -300,5 +300,11 @@
     <key name="semantic-search" type="b"><default>true</default><summary>Local semantic search</summary></key>
     <key name="prefer-caret" type="b"><default>true</default><summary>Prefer the input caret when available</summary></key>
     <key name="private-mode" type="b"><default>false</default><summary>Pause clipboard capture</summary></key>
+    <key name="hover-preview" type="b"><default>true</default><summary>Preview hovered and focused entries</summary></key>
+    <key name="hover-preview-delay" type="i"><default>300</default><range min="100" max="2000"/><summary>Preview delay in milliseconds</summary></key>
+    <key name="popup-width" type="i"><default>460</default><range min="300" max="1000"/><summary>Popup width before text scaling</summary></key>
+    <key name="popup-height" type="i"><default>440</default><range min="240" max="900"/><summary>Popup height before text scaling</summary></key>
+    <key name="popup-margin" type="i"><default>12</default><range min="4" max="80"/><summary>Screen edge margin</summary></key>
+    <key name="max-history-items" type="i"><default>0</default><range min="0" max="10000000"/><summary>Unpinned history retention limit, zero for unlimited</summary></key>
     </schema>
 </schemalist>
