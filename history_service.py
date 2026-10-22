@@ -249,9 +249,16 @@ class Archive:
                 row = self.db.execute(f'SELECT id FROM entries ORDER BY {sign}*favorite {order},used {order},id {order} LIMIT 1').fetchone()
             return dict(row) if row else None
         if op == 'stats':
-            return {'count': self.db.execute('SELECT count(*) FROM entries').fetchone()[0],
-                    'bytes': sum(p.stat().st_size for p in self.root.rglob('*') if p.is_file()),
-                    'semantic': self.semantic_status}
+            rows=self.db.execute('SELECT path,length(CAST(text AS BLOB)) size FROM entries').fetchall()
+            content=sum((Path(r['path']).stat().st_size if Path(r['path']).exists() else 0) if r['path'] else r['size'] for r in rows)
+            attachments=sum(p.stat().st_size for p in self.attachments.rglob('*') if p.is_file())
+            database=sum(p.stat().st_size for p in self.root.glob('history.sqlite3*') if p.is_file())
+            def directory_bytes(name):
+                return sum(p.stat().st_size for p in (self.root/name).rglob('*') if p.is_file())
+            return {'count':len(rows),'bytes':database+attachments,'content_bytes':content,
+                    'archive_bytes':database+attachments,'database_bytes':database,'attachment_bytes':attachments,
+                    'runtime_bytes':directory_bytes('runtime'),'model_bytes':directory_bytes('models'),
+                    'semantic':self.semantic_status}
         with self.db:
             if op == 'add':
                 ident=self.add(request['mimetype'],base64.b64decode(request['data'],validate=True))

@@ -174,6 +174,12 @@ popup closes. This feature is inspired by [ajithakdev's hover-preview contributi
 collected in capaj's fork](https://github.com/capaj/gnome-shell-extension-clipboard-indicator/commit/d4a51e4d45995ae7e02d6175ef844712fe6a292c).
 Its rendering and loading were adapted to this fork's virtual list and helper process.
 
+The tray summary shows the number of saved entries and their original content size.
+The Storage submenu separates content, database/journals, attachments/previews,
+search runtime, and model weights. Runtime and model files are not clipboard history.
+After deletion SQLite may retain allocated space for reuse; content size can therefore
+be much smaller than database disk usage.
+
 ## Validation
 
 ```sh

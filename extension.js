@@ -103,13 +103,24 @@ export default class ClipboardArchive extends Extension {
         this.button.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         this.archiveInfo = new PopupMenu.PopupMenuItem('Archive loading…', {reactive:false});
         this.button.menu.addMenuItem(this.archiveInfo);
+        this.storageMenu=new PopupMenu.PopupSubMenuMenuItem('Storage');
+        this.storageRows={};
+        for(const [key,label] of [['content_bytes','Saved content'],['database_bytes','Database and journals'],['attachment_bytes','Attachments and previews'],['runtime_bytes','Search runtime'],['model_bytes','Search models']]) {
+            const row=new PopupMenu.PopupMenuItem(label,{reactive:false});
+            this.storageRows[key]={row,label};this.storageMenu.menu.addMenuItem(row);
+        }
+        this.storageMenu.menu.addMenuItem(new PopupMenu.PopupMenuItem('SQLite reuses freed space after deletions.',{reactive:false}));
+        this.button.menu.addMenuItem(this.storageMenu);
         this.button.menu.addAction('Open history', () => this.later(0, () => this.openHistory()));
         this.clearAction=this.button.menu.addAction('Clear unpinned history…', () => this.clear());
         this.preferencesAction=this.button.menu.addAction('Preferences', () => this.openPreferences());
         this.button.menu.connect('open-state-changed', (_, open) => {
             if (open) this.run(async () => {
                 const s = await this.client.request('stats');
-                if (!this.dead) this.archiveInfo.label.text = `${s.count} items · ${(s.bytes/1048576).toFixed(1)} MB · Search: ${s.semantic}`;
+                if (!this.dead) {
+                    this.archiveInfo.label.text = `${s.count} ${s.count===1?'item':'items'} · ${GLib.format_size_full(s.content_bytes,GLib.FormatSizeFlags.IEC_UNITS)} content · Search: ${s.semantic}`;
+                    for(const [key,{row,label}] of Object.entries(this.storageRows)) row.label.text=`${label}: ${GLib.format_size_full(s[key],GLib.FormatSizeFlags.IEC_UNITS)}`;
+                }
             });
         });
     }

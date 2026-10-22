@@ -113,6 +113,19 @@ class ArchiveTests(unittest.TestCase):
         self.assertEqual(len(preview['text']),4000)
         self.assertTrue(preview['truncated'])
 
+    def test_storage_separates_content_from_runtime_and_models(self):
+        self.add('test')
+        for name in ['runtime','models']:
+            folder=self.archive.root/name;folder.mkdir()
+            (folder/'test.bin').write_bytes(b'x'*1048576)
+        stats=self.archive.dispatch({'op':'stats'})
+        self.assertEqual(stats['count'],1)
+        self.assertEqual(stats['content_bytes'],4)
+        self.assertEqual(stats['runtime_bytes'],1048576)
+        self.assertEqual(stats['model_bytes'],1048576)
+        self.assertEqual(stats['archive_bytes'],stats['database_bytes']+stats['attachment_bytes'])
+        self.assertEqual(stats['bytes'],stats['archive_bytes'])
+
     def test_search_punctuation_is_safe(self):
         self.add('https://example.com/hello?q=1')
         self.assertTrue(self.archive.query('example.com')['items'])
