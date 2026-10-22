@@ -1,31 +1,105 @@
 # Clipboard Indicator Fork
 
-A fork of [Tudmotu's Clipboard Indicator](https://github.com/Tudmotu/gnome-shell-extension-clipboard-indicator)
-for large local histories and a separate floating history popup.
+An experimental fork of [Clipboard Indicator](https://github.com/Tudmotu/gnome-shell-extension-clipboard-indicator),
+created by **Yotam Bar-On (Tudmotu)** and developed by its maintainers and
+[contributors](https://github.com/Tudmotu/gnome-shell-extension-clipboard-indicator/graphs/contributors).
+The original project provides the foundation for this fork, including its GNOME
+integration, clipboard workflow, settings, translations, and supporting code.
+Full credit for that work belongs to the original authors and contributors.
 
-## Current implementation
+This fork focuses on large local archives and a separate floating history popup.
+It is independently maintained and is **not an official release or an endorsed
+version of the upstream project**. The original MIT license and copyright notice
+are retained unchanged in [LICENSE.rst](LICENSE.rst).
 
-- SQLite storage and FTS5 keyword search in a private Python helper process.
-- Incremental writes and content-hash deduplication; no whole-history JSON rewrites.
-- Unlimited retention by default, constrained by available disk space.
-- Thirty results per page, including pinned results. Shell never constructs a row for every stored entry.
-- Local semantic retrieval through FastEmbed and MiniLM, combined with keyword rankings.
-- Background screenshot OCR through RapidOCR and 96-pixel image thumbnails.
-- Separate workers for image indexing, embedding indexing, and semantic queries.
-- A history shortcut opens at the input caret where the application reports it,
-  falling back to the mouse pointer. Placement flips above the anchor near the
-  bottom and respects the monitor work area with a 12-pixel margin.
-- The tray icon opens capture controls, archive status, cleanup, and preferences.
-- Row action icons appear only on the active row, selected by pointer hover or keyboard focus.
+## AI development disclosure
+
+**This fork's architecture changes, implementation, tests, and documentation were
+created with AI using OpenAI Codex, directed by the fork owner.** This disclosure
+applies to the changes in this fork, not to the original project's development.
+Passing automated checks does not establish production readiness or a complete
+human review. Treat this build as experimental and report reproducible failures.
+
+## What changes compared with the original
+
+The comparison below describes the upstream code this fork started from,
+[commit c880c7f](https://github.com/Tudmotu/gnome-shell-extension-clipboard-indicator/tree/c880c7fb88dc7232a61a5864d125989a4f375daa).
+Upstream may change independently. These are architecture and workflow changes;
+performance claims are limited to the measurements described below.
+
+| Area | Original at the fork baseline | This fork |
+| --- | --- | --- |
+| Persistent history | JSON registry with whole-history serialization on saves; separate cached image files | SQLite database with incremental record writes and attachment files |
+| Work inside GNOME Shell | History comparison, serialization, and menu work run in Shell | Hashing, database operations, OCR, embeddings, and semantic retrieval run in a private helper process |
+| Menu size | A live row is created for every retained entry | At most 30 results per page, including pinned entries |
+| Image loading | Startup loads cached image payloads; menu rows create image previews | Originals stay on disk until requested; background workers create 96-pixel thumbnails for result rows |
+| Duplicate detection | Walks the retained history and compares entry values | SHA-256 of the incoming item, looked up through a unique database index |
+| Search | Substring and optional regex matching against entries and tags | Indexed FTS5 keyword/prefix search, plus optional local semantic ranking |
+| Screenshot search | Image identifiers and manually assigned tags | Background OCR makes recognized screenshot text available to keyword and semantic search |
+| History placement | Panel-menu workflow with an optional mouse-cursor placement setting | Separate shortcut-opened popup, preferring the app's reported text caret and falling back to the pointer |
+| Screen edges | Existing GNOME popup placement behavior | Placement flips above the anchor when needed and uses monitor work areas with a 12-pixel margin |
+| Tray icon | Opens the history menu | Opens quick settings, archive status, cleanup, and preferences; also offers an Open history action |
+| Row actions | Actions are constructed for each entry and controlled by visibility settings | Action icons are shown only on the hovered or keyboard-selected row |
+| Retention | Configured history-entry limit and a registry-file size check | No automatic count or size eviction; history grows until explicitly cleared or disk space runs out |
+| Development isolation | Original UUID and settings/cache locations | Separate fork UUID, settings path, and SQLite data directory |
+
+The fork keeps the original project's core workflow: clipboard capture, text and
+image entries, pinning, tags, text editing, private mode, excluded apps, shortcuts,
+and optional paste-on-selection. Those features originate in Clipboard Indicator;
+the fork adapts them to the new archive and popup.
+
+## Improvements and their limits
+
+The intended improvement is that opening history and searching a large archive
+no longer requires GNOME Shell to process and lay out the entire history. The
+popup receives a small result page, and new copies update individual records.
+Image indexing, embedding indexing, and semantic queries use separate workers.
+
+The included synthetic SQLite benchmark has been run at 1,000, 10,000, and
+100,000 entries. In one local 100,000-entry run, p95 helper-query times were
+0.11 ms for recent entries, 3.4 ms for a selective keyword query, and 72.13 ms
+for a broad keyword query. These figures exclude Shell rendering, clipboard
+transfer, and semantic inference. They are not a comparison against an upstream
+benchmark or a guarantee of desktop frame times. Re-run `tools/benchmark.py` on
+your hardware.
 
 All history processing and inference runs locally. The optional setup command
 downloads packages and model weights, not clipboard content. Semantic search
 loads cached weights offline during normal use. The model is strongest in English.
 Image search uses recognized text and tags; visual object similarity is not implemented.
 
-This is an experimental architecture change. The old history-size and cache-size
-settings no longer prune or reset the archive. Explicit clear-on-login and scheduled
-clearing remain opt-in. Disk use includes the optional runtime and models.
+Unlimited retention does not mean unlimited resources. The archive, attachments,
+models, and optional Python runtime consume disk space. Semantic retrieval still
+scans stored vectors linearly and indexes only the first 6,000 characters of each
+entry; keyword search covers the full text. Approximate vector indexing, semantic
+chunking, disk quotas, and broader end-to-end latency measurements remain future work.
+
+### Copy-time lag and upstream issue #428
+
+[Upstream issue #428](https://github.com/Tudmotu/gnome-shell-extension-clipboard-indicator/issues/428)
+reports desktop stalls when copying large items or when history contains many
+images. Its discussion includes reports of repeatedly hashing/copying retained
+images and of large clipboard payloads being handled inside Shell.
+
+The new runtime does not import the legacy `Registry` or `ClipboardEntry` classes.
+It does not traverse and rehash stored images on each copy, nor rewrite the entire
+archive. Only the incoming payload is hashed, in the helper process. The old
+`registry.js` remains in the repository for reference and is not on the active path.
+
+**Do not consider #428 fully resolved in this fork.** Capturing a new item still
+requests its full contents through `St.Clipboard` inside Shell, then base64-encodes
+and serializes the payload before sending it to the helper. Selecting an item also
+returns its full payload through JSON/base64. These operations can still produce
+allocation pressure and brief stalls for large images or documents.
+
+An isolated GJS serialization check measured median times of approximately 5.4 ms
+for 1 MiB, 7.9 ms for 2 MiB, and 46.4 ms for 8 MiB payloads. It excluded clipboard
+transfer, UI rendering, and disk I/O, so it cannot establish total copy latency or
+prove that the reported multi-second stalls are gone. A binary/file-based transfer
+path and live copy-time profiling are still needed.
+
+Explicit clear-on-login and scheduled clearing remain opt-in. The original
+history-size and cache-size settings no longer prune or reset this fork's archive.
 
 ## Install
 
@@ -81,6 +155,7 @@ options are not implemented. Old settings remain stored for rollback.
 python3 -m unittest discover -s tests -v
 node tests/placement.mjs
 python3 tools/benchmark.py
+gjs -m tools/benchmark_transfer.js
 # After local search setup, using the runtime's Python:
 /path/to/runtime/bin/python tools/test_local_search.py /path/to/models
 bash tools/smoke.sh
