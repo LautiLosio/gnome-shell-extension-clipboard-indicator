@@ -3,7 +3,7 @@
 This fork preserves Clipboard Indicator's GNOME workflow while replacing the
 architecture that couples every stored entry to a live Shell menu row.
 
-Status: first experimental implementation. SQLite, bounded result pages, local
+Status: first experimental implementation. SQLite, bounded result windows, local
 semantic search, OCR, and separate tray/history menus are implemented. See README
 for supported behavior, validation, and remaining limitations.
 Upstream baseline: c880c7fb88dc7232a61a5864d125989a4f375daa.
@@ -42,7 +42,7 @@ image previews. Separate persistent records from view widgets throughout.
    text, images, pins, and tags. Measure cold/warm opening, typing latency,
    Shell frame stalls, RSS, and copy-to-persistence latency.
 2. Bounded menu and separate data model: retain access to all entries through
-   paging/search, load only visible thumbnails, preserve existing actions.
+   lazy scrolling/search, load only visible thumbnails, preserve existing actions.
 3. Archive service: incremental SQLite writes, indexed keyword queries,
    attachment deduplication, crash recovery, and service lifecycle management.
 4. Migration: idempotent import, backups, validation of imported counts and

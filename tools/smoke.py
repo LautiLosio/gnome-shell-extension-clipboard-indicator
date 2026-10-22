@@ -36,13 +36,24 @@ s=s.replace('this.configureInterval();','''this.configureInterval();
                 console.log('ARCHIVE_SMOKE: visibleActions=' + this.actionActors.filter(a=>a.visible).length);
                 if(++step<points.length) check();
                 else {
-                    this.history.close();
-                    this.button.menu.open();
-                    console.log('ARCHIVE_SMOKE: settings=' + this.button.menu.isOpen);
-                    this.later(500, () => {
-                        this.button.menu.close();
-                        this.openPreferences();
-                        this.later(1000, () => { this.disable(); console.log('ARCHIVE_SMOKE: disabled'); });
+                    console.log('ARCHIVE_SMOKE: rowHeight=' + this.rowHeight);
+                    this.adjustment.value=500*this.rowHeight;
+                    this.later(700,() => {
+                        console.log('ARCHIVE_SMOKE: scrollDown offset=' + this.renderOffset + ',rows=' + this.rows.length + ',value=' + this.adjustment.value + ',height=' + this.rowActors[0].height);
+                        if(this.renderOffset<400 || this.rows.length>60) throw new Error('Lazy scrolling failed');
+                        this.adjustment.value=0;
+                        this.later(700,() => {
+                            console.log('ARCHIVE_SMOKE: scrollBack offset=' + this.renderOffset);
+                            if(this.renderOffset!==0) throw new Error('Reverse scrolling failed');
+                            this.history.close();
+                            this.button.menu.open();
+                            console.log('ARCHIVE_SMOKE: settings=' + this.button.menu.isOpen);
+                            this.later(500, () => {
+                                this.button.menu.close();
+                                this.openPreferences();
+                                this.later(1000, () => { this.disable(); console.log('ARCHIVE_SMOKE: disabled'); });
+                            });
+                        });
                     });
                 }
             });

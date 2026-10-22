@@ -45,6 +45,12 @@ with tempfile.TemporaryDirectory() as folder:
   assert len(ocr['items'])==1
   request('delete',entry=3)
   assert not request('query',q='Clipboard search')['items']
+  for i in range(80):
+   request('add',mimetype='text/plain',data=base64.b64encode(f'Automobile engine maintenance note {i}'.encode()).decode())
+  first=request('query',q='automobile',limit=30,semantic=True)
+  second=request('query',q='automobile',limit=30,offset=30,semantic=True)
+  assert first['total']>=81 and second['total']==first['total']
+  assert not ({e['id'] for e in first['items']} & {e['id'] for e in second['items']})
   process.stdin.close();process.wait(timeout=5)
   assert process.returncode==0
-  print('PASS: helper protocol, local semantic synonyms, screenshot OCR, thumbnails, and deletion')
+  print('PASS: helper protocol, local semantic synonyms, screenshot OCR, thumbnails, deletion, and lazy semantic windows')

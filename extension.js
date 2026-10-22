@@ -16,7 +16,8 @@ import {DialogManager} from './confirmDialog.js';
 import {placePopup} from './placement.js';
 
 const TYPE = St.ClipboardType.CLIPBOARD;
-const PAGE = 30;
+const PAGE = 60;
+const OVERSCAN = 15;
 
 export default class ClipboardArchive extends Extension {
     enable() {
@@ -65,7 +66,7 @@ export default class ClipboardArchive extends Extension {
         Promise.resolve().then(action).catch(error => {
             if (!this.dead) {
                 console.error(`Clipboard archive: ${error.message}`);
-                if (this.status) this.status.text = error.message;
+                if (this.status) { this.status.text = error.message; this.statusRow?.show(); }
             }
         });
     }
@@ -121,40 +122,34 @@ export default class ClipboardArchive extends Extension {
             this.searchTimer = this.later(100, () => {
                 this.searchTimer = null;
                 this.offset = 0;
+                this.semanticMode=false;
                 this.refresh();
             });
         });
         this.results = new PopupMenu.PopupMenuSection();
+        this.results.actor.set_style('spacing: 0;');
         const scrollRow = new PopupMenu.PopupBaseMenuItem({reactive:false, can_focus:false});
         this.scroll = new St.ScrollView({style_class:'ci-archive-scroll', overlay_scrollbars:true, x_expand:true});
         this.scroll.add_child(this.results.actor);
         scrollRow.add_child(this.scroll);
         this.history.addMenuItem(scrollRow);
-        this.status = new St.Label({text:'', style_class:'ci-archive-status'});
-        const statusRow = new PopupMenu.PopupBaseMenuItem({reactive:false, can_focus:false});
+        this.adjustment = this.scroll.get_vadjustment();
+        this.adjustment.connect('notify::value', () => this.onScroll());
+        this.status = new St.Label({text:''});
+        const statusRow = this.statusRow = new PopupMenu.PopupBaseMenuItem({reactive:false, can_focus:false});
         statusRow.add_child(this.status);
         this.history.addMenuItem(statusRow);
-        const pages = new PopupMenu.PopupBaseMenuItem({reactive:false, can_focus:false});
-        this.previous = this.smallButton('Previous page', () => { this.offset = Math.max(0,this.offset-PAGE); this.refresh(); });
-        this.next = this.smallButton('Next page', () => { this.offset += PAGE; this.refresh(); });
-        pages.add_child(this.previous); pages.add_child(this.next);
-        this.history.addMenuItem(pages);
         this.history.actor.connect('key-press-event', (_, event) => this.key(event));
         this.history.connect('open-state-changed', (_, open) => {
             if (!open) this.generation++;
         });
     }
 
-    smallButton(label, action) {
-        const b = new St.Button({label, style_class:'ci-archive-action', can_focus:true});
-        b.connect('clicked', () => this.run(action));
-        return b;
-    }
-
     openHistory() {
         if (this.history.isOpen) { this.history.close(); return; }
         this.button.menu.close();
         this.offset = 0;
+        this.semanticMode=false;
         this.search.text = '';
         const pointer = global.get_pointer();
         const caret = this.settings.get_boolean('prefer-caret') && this.caret?.window === global.display.focus_window ? this.caret : null;
@@ -163,64 +158,85 @@ export default class ClipboardArchive extends Extension {
         const monitor = monitors.find(m => x>=m.x && x<m.x+m.width && y>=m.y && y<m.y+m.height) || Main.layoutManager.primaryMonitor;
         if (!monitor) return;
         const area = Main.layoutManager.getWorkAreaForMonitor(monitor.index);
-        const placement = placePopup(x,y,area,460,440,12);
+        const desktop = new Gio.Settings({schema_id:'org.gnome.desktop.interface'});
+        const fontScale = desktop.get_double('text-scaling-factor');
+        const placement = placePopup(x,y,area,460*fontScale,440*fontScale,12);
         this.anchor.set_position(placement.x,placement.y);
         this.history.box.set_style(`width: ${placement.width}px;`);
-        this.scroll.set_style(`max-height: ${Math.max(40,placement.height-210)}px;`);
+        this.scroll.set_style(`max-height: ${Math.max(40,placement.height-100*fontScale)}px;`);
         this.history._boxPointer.updateArrowSide(placement.above ? St.Side.BOTTOM : St.Side.TOP);
         this.history.open();
         global.stage.set_key_focus(this.search);
         this.refresh();
     }
 
-    refresh() {
+    refresh(reset = true) {
+        if (reset) {
+            this.offset=0;
+            this.pendingFocus=null;
+            this.rendering=true;
+            this.adjustment.value=0;
+            this.rendering=false;
+        }
+        this.generation++;
         if (this.queryBusy) { this.queryAgain=true; return; }
         this.queryBusy=true;
-        const token = ++this.generation;
+        const token = this.generation;
         const q = this.search.text;
-        this.status.text = 'Searching…';
+        if (!this.rows.length) { this.statusRow.show(); this.status.text = 'Loading…'; }
         // Lexical results appear first even while an embedding query is expensive.
         this.run(async () => {
             try {
-            const reply = await this.client.request('query',{q,offset:this.offset,limit:PAGE});
+            const reply = await this.client.request('query',{q,offset:this.offset,limit:PAGE,semantic:this.semanticMode || false});
             if (this.dead || token !== this.generation || !this.history.isOpen) return;
-            this.render(reply);
-            if (q && this.offset === 0 && this.settings.get_boolean('semantic-search')) {
+            this.render(reply,reset);
+            if (q && this.offset === 0 && this.settings.get_boolean('semantic-search') && !this.semanticMode) {
                 const hybrid = await this.client.request('query',{q,limit:PAGE,semantic:true});
-                if (!this.dead && token === this.generation && this.history.isOpen) this.render(hybrid);
+                if (!this.dead && token === this.generation && this.history.isOpen) { this.semanticMode=true; this.render(hybrid,true); }
             }
             } finally {
                 this.queryBusy=false;
                 if (this.queryAgain && !this.dead && this.history.isOpen) {
                     this.queryAgain=false;
-                    this.refresh();
+                    this.refresh(false);
                 }
             }
         });
     }
 
-    render(reply) {
+    render(reply,reset = false) {
+        this.rendering=true;
+        const oldFocus=global.stage.key_focus;
+        const focus=this.pendingFocus ?? (oldFocus && this.rowActors?.some(a=>a.contains(oldFocus)) ? this.renderOffset+this.selected : null);
+        const scrollValue=reset ? 0 : this.adjustment.value;
+        this.total=reply.total;
         this.results.removeAll();
+        this.topSpace=new PopupMenu.PopupBaseMenuItem({reactive:false,can_focus:false});
+        this.topSpace.set_style('padding: 0; margin: 0; min-height: 0;');
+        this.results.addMenuItem(this.topSpace);
         this.rows = reply.items;
         this.rowActors = [];
         this.actionActors = [];
-        this.selected = 0;
+        this.selected = focus === null ? 0 : Math.max(0,Math.min(this.rows.length-1,focus-this.offset));
         for (const [index,entry] of this.rows.entries()) {
             const label = entry.mimetype.startsWith('image/') ? 'Image' : entry.preview.replace(/\s+/g,' ');
-            const item = new PopupMenu.PopupMenuItem(`${entry.favorite ? '★ ' : ''}${label || '(empty text)'}`);
+            const item = new PopupMenu.PopupMenuItem(label || '(empty text)');
+            item.add_style_class_name('ci-history-row');
+            if (entry.favorite) item.insert_child_at_index(new St.Icon({icon_name:'view-pin-symbolic',style_class:'popup-menu-icon ci-pin-indicator',accessible_name:'Pinned'}),1);
             item.label.clutter_text.set_ellipsize(3);
             item.label.x_expand = true;
-            if (entry.thumbnail) item.insert_child_at_index(new St.Icon({gicon:Gio.icon_new_for_string(entry.thumbnail),icon_size:32}),1);
-            if (entry.tag) item.add_child(new St.Label({text:entry.tag.slice(0,32),style_class:'ci-tag-label'}));
+            if (entry.thumbnail) item.insert_child_at_index(new St.Icon({gicon:Gio.icon_new_for_string(entry.thumbnail),style_class:'ci-thumbnail'}),1);
+            if (entry.tag) item.add_child(new St.Label({text:entry.tag.slice(0,32),style_class:'dim-label'}));
             item.connect('activate', () => this.run(() => this.select(entry)));
             item.track_hover=true;
             const active = () => this.setActive(index);
             item.connect('key-focus-in', () => { active(); AnimationUtils.ensureActorVisibleInScrollView(this.scroll,item); });
             item.connect('notify::hover', () => { if(item.hover) active(); });
-            const actions=new St.BoxLayout({style_class:'ci-row-actions',visible:index===0});
-            const action=(icon,label,callback) => {
-                const button=new St.Button({can_focus:true,style_class:'ci-row-action',accessible_name:label,
-                    child:new St.Icon({icon_name:icon,icon_size:16})});
+            const actions=new St.BoxLayout({style_class:'ci-row-actions',visible:index===this.selected});
+            const action=(icon,label,callback,checked=false) => {
+                const button=new St.Button({can_focus:true,style_class:'button flat ci-row-action',accessible_name:label,
+                    child:new St.Icon({icon_name:icon,style_class:'popup-menu-icon'})});
+                if (checked) button.add_style_pseudo_class('checked');
                 button.connect('clicked',() => this.run(callback));
                 button.connect('key-focus-in',active);
                 actions.add_child(button);
@@ -233,9 +249,9 @@ export default class ClipboardArchive extends Extension {
                 });
             });
             else action('document-edit-symbolic','Edit',() => this.edit(entry,false));
-            action(entry.favorite?'view-pin-symbolic':'list-add-symbolic',entry.favorite?'Unpin':'Pin',async () => {
-                await this.client.request('update',{entry:entry.id,favorite:!entry.favorite}); this.refresh();
-            });
+            action('view-pin-symbolic',entry.favorite?'Unpin':'Pin',async () => {
+                await this.client.request('update',{entry:entry.id,favorite:!entry.favorite}); this.semanticMode=false; this.refresh();
+            },entry.favorite);
             action('bookmark-new-symbolic','Tag',() => this.edit(entry,true));
             action('edit-delete-symbolic','Delete',() => this.deleteEntry(entry));
             item.add_child(actions);
@@ -243,11 +259,40 @@ export default class ClipboardArchive extends Extension {
             this.results.addMenuItem(item);
             this.rowActors.push(item);
         }
-        this.previous.reactive = this.offset>0;
-        this.previous.opacity = this.offset>0 ? 255:80;
-        this.next.reactive = reply.more;
-        this.next.opacity = reply.more ? 255:80;
-        this.status.text = this.rows.length ? `${this.offset+1}–${this.offset+this.rows.length} · ${reply.semantic} · Ctrl+P pin · Ctrl+T tag · Ctrl+E edit` : 'No matching items';
+        this.bottomSpace=new PopupMenu.PopupBaseMenuItem({reactive:false,can_focus:false});
+        this.bottomSpace.set_style('padding: 0; margin: 0; min-height: 0;');
+        this.results.addMenuItem(this.bottomSpace);
+        const first=this.rowActors[0];
+        if(first) this.rowHeight=first.get_preferred_height(-1)[1];
+        this.rowHeight=Math.max(1,this.rowHeight || 40);
+        for(const actor of this.rowActors) actor.height=this.rowHeight;
+        this.topSpace.height=this.offset*this.rowHeight;
+        this.bottomSpace.height=Math.max(0,this.total-this.offset-this.rows.length)*this.rowHeight;
+        this.renderOffset=this.offset;
+        this.statusRow.visible=!this.rows.length;
+        this.status.text=this.rows.length ? '' : 'No matching items';
+        this.rendering=false;
+        this.later(0,() => {
+            if (!this.history.isOpen) return;
+            this.rendering=true;
+            this.adjustment.value=scrollValue;
+            this.rendering=false;
+            if(focus !== null && focus !== undefined) {
+                this.pendingFocus=null;
+                this.rowActors[focus-this.renderOffset]?.grab_key_focus();
+            }
+        });
+    }
+
+    onScroll() {
+        if(this.rendering || !this.history.isOpen || !this.total || !this.rowHeight) return;
+        const first=Math.floor(this.adjustment.value/this.rowHeight);
+        const visible=Math.ceil(this.adjustment.page_size/this.rowHeight);
+        if(first >= this.renderOffset+OVERSCAN && first+visible < this.renderOffset+this.rows.length-OVERSCAN) return;
+        const offset=Math.max(0,Math.min(Math.max(0,this.total-PAGE),Math.floor((first-OVERSCAN)/OVERSCAN)*OVERSCAN));
+        if(offset===this.offset) return;
+        this.offset=offset;
+        this.refresh(false);
     }
 
     setActive(index) {
@@ -262,8 +307,15 @@ export default class ClipboardArchive extends Extension {
         if (key === Clutter.KEY_Escape) { this.history.close(); return Clutter.EVENT_STOP; }
         if (key === Clutter.KEY_Down || key === Clutter.KEY_Up) {
             const atSearch = global.stage.key_focus === this.search.clutter_text;
-            this.selected = atSearch ? 0 : Math.max(0,Math.min(this.rows.length-1,this.selected+(key===Clutter.KEY_Down?1:-1)));
-            this.rowActors[this.selected]?.grab_key_focus();
+            const absolute=atSearch ? 0 : Math.max(0,Math.min(this.total-1,this.renderOffset+this.selected+(key===Clutter.KEY_Down?1:-1)));
+            if(absolute<this.renderOffset || absolute>=this.renderOffset+this.rows.length) {
+                this.pendingFocus=absolute;
+                this.offset=Math.max(0,Math.min(Math.max(0,this.total-PAGE),absolute-OVERSCAN));
+                this.refresh(false);
+            } else {
+                this.selected=absolute-this.renderOffset;
+                this.rowActors[this.selected]?.grab_key_focus();
+            }
             return Clutter.EVENT_STOP;
         }
         if (entry && key === Clutter.KEY_Return && global.stage.key_focus === this.search.clutter_text) { this.run(() => this.select(entry)); return Clutter.EVENT_STOP; }

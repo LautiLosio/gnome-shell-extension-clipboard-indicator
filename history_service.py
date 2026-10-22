@@ -48,6 +48,7 @@ class Archive:
         for name, definition in [('thumbnail','TEXT'),('processed','INTEGER NOT NULL DEFAULT 0')]:
             if name not in columns:
                 self.db.execute(f'ALTER TABLE entries ADD COLUMN {name} {definition}')
+        self.search_cache = {}
         self.semantic = None
         self.semantic_status = 'not installed'
         self.stop = threading.Event()
@@ -99,7 +100,7 @@ class Archive:
             VALUES(?,?,?,?,?,?,?,?)''', (digest,mime,text,path,int(favorite),tag,stamp,stamp)).lastrowid
 
     def query(self, q='', limit=30, offset=0, semantic=False):
-        limit = max(1, min(int(limit), 50))
+        limit = max(1, min(int(limit), 90))
         offset = max(0, int(offset))
         fields = "e.id,e.mimetype,substr(e.text,1,180) AS preview,e.favorite,substr(e.tag,1,80) AS tag,e.used,e.thumbnail"
         tokens = re.findall(r'\w+', q, re.UNICODE)[:64]
@@ -115,23 +116,34 @@ class Archive:
         rows = [dict(r) for r in self.db.execute(f'SELECT {fields} FROM {source}{where} ORDER BY {order} LIMIT ? OFFSET ?', (*args,limit+1,offset))]
         more = len(rows) > limit
         rows = rows[:limit]
-        if semantic and q and self.semantic is not None and offset == 0:
-            # Model inference and vector scan run in the helper, never Shell.
-            import numpy as np
-            vector = next(self.semantic.query_embed(q)).astype(np.float32)
-            scores = []
-            cursor = self.db.execute('SELECT v.id,v.vector FROM vectors v JOIN entries e ON e.id=v.id AND e.revision=v.revision')
-            while batch := cursor.fetchmany(512):
-                matrix = np.stack([np.frombuffer(r['vector'], dtype=np.float32) for r in batch])
-                similarity = matrix @ vector
-                scores.extend((float(score), r['id']) for score,r in zip(similarity,batch) if score >= 0.25)
-            scores.sort(reverse=True)
-            lexical = {r['id']: 1/(60+i) for i,r in enumerate(rows)}
-            for i,(_,ident) in enumerate(scores[:limit]):
-                lexical[ident] = lexical.get(ident,0) + 1/(60+i)
-            ids = sorted(lexical, key=lexical.get, reverse=True)[:limit]
-            rows = [dict(self.db.execute(f'SELECT {fields} FROM entries e WHERE id=?',(ident,)).fetchone()) for ident in ids]
-        return {'items': rows, 'more':more, 'semantic':self.semantic_status}
+        total = self.db.execute(f'SELECT count(*) FROM {source}{where}',args).fetchone()[0]
+        if semantic and q and self.semantic is not None:
+            if offset == 0 or q not in self.search_cache:
+                # Model inference and vector scan run in the helper, never Shell.
+                import numpy as np
+                vector = next(self.semantic.query_embed(q)).astype(np.float32)
+                scores = []
+                cursor = self.db.execute('SELECT v.id,v.vector FROM vectors v JOIN entries e ON e.id=v.id AND e.revision=v.revision')
+                while batch := cursor.fetchmany(512):
+                    matrix = np.stack([np.frombuffer(r['vector'], dtype=np.float32) for r in batch])
+                    similarity = matrix @ vector
+                    scores.extend((float(score), r['id']) for score,r in zip(similarity,batch) if score >= 0.25)
+                scores.sort(reverse=True)
+                matches = self.db.execute(f'SELECT e.id FROM {source}{where} ORDER BY {order}', args)
+                lexical = {r['id']: 1/(60+i) for i,r in enumerate(matches)}
+                for i,(_,ident) in enumerate(scores):
+                    lexical[ident] = lexical.get(ident,0) + 1/(60+i)
+                ids = sorted(lexical, key=lexical.get, reverse=True)
+                self.search_cache.clear()
+                self.search_cache[q] = ids
+            ids = self.search_cache.get(q, [])
+            total = len(ids)
+            rows = []
+            for ident in ids[offset:offset+limit]:
+                row = self.db.execute(f'SELECT {fields} FROM entries e WHERE id=?',(ident,)).fetchone()
+                if row: rows.append(dict(row))
+            more = offset+limit < total
+        return {'items': rows, 'more':more, 'total':total, 'semantic':self.semantic_status}
 
     def start_assets(self):
         def worker():
@@ -286,9 +298,12 @@ def main():
                 target.db = sqlite3.connect(archive.root/'history.sqlite3', timeout=10)
                 target.db.row_factory = sqlite3.Row
                 connection = target.db
+                target.search_cache = archive.search_cache
                 target.semantic = archive.semantic
                 target.semantic_status = archive.semantic_status
             result = {'id':request['id'],'result':target.dispatch(request)}
+            if request.get('op') in ('add','update','delete','clear'):
+                archive.search_cache.clear()
         except Exception as error:
             result = {'id':request.get('id'),'error':str(error)}
         finally:

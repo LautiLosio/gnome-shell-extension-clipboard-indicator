@@ -31,7 +31,7 @@ performance claims are limited to the measurements described below.
 | --- | --- | --- |
 | Persistent history | JSON registry with whole-history serialization on saves; separate cached image files | SQLite database with incremental record writes and attachment files |
 | Work inside GNOME Shell | History comparison, serialization, and menu work run in Shell | Hashing, database operations, OCR, embeddings, and semantic retrieval run in a private helper process |
-| Menu size | A live row is created for every retained entry | At most 30 results per page, including pinned entries |
+| Menu size | A live row is created for every retained entry | One continuous, lazy-loaded list with at most 60 live result rows, including pinned entries |
 | Image loading | Startup loads cached image payloads; menu rows create image previews | Originals stay on disk until requested; background workers create 96-pixel thumbnails for result rows |
 | Duplicate detection | Walks the retained history and compares entry values | SHA-256 of the incoming item, looked up through a unique database index |
 | Search | Substring and optional regex matching against entries and tags | Indexed FTS5 keyword/prefix search, plus optional local semantic ranking |
@@ -52,7 +52,7 @@ the fork adapts them to the new archive and popup.
 
 The intended improvement is that opening history and searching a large archive
 no longer requires GNOME Shell to process and lay out the entire history. The
-popup receives a small result page, and new copies update individual records.
+popup receives a bounded window of results as you scroll, and new copies update individual records.
 Image indexing, embedding indexing, and semantic queries use separate workers.
 
 The included synthetic SQLite benchmark has been run at 1,000, 10,000, and
@@ -138,10 +138,15 @@ into upstream's JSON cache.
 Use the existing history shortcut, configurable in Preferences. The default is
 Control+F9. Click or press Enter on a row to copy it; enable Paste on selection to
 paste into the previously focused application. Paste support depends on the app's
-Shift+Insert handling. Arrow keys navigate the current page; use Next and Previous
-for more results. Escape dismisses the popup.
+Shift+Insert handling. Scroll or use the arrow keys to move through the continuous list. Results load as
+needed in either direction, with no Next or Previous buttons. Escape dismisses the popup.
+
+Text inherits GNOME Shell’s font. Popup dimensions track the system text-scaling
+factor, and row/icon sizing uses font-relative units.
 
 The active row exposes edit or image preview, pin, tag, and delete icons.
+The pin action and pinned indicator use the same native pin symbol. The action
+has a checked state when pinned and an accessible Pin or Unpin label.
 Control+P toggles pinning, Control+T edits the tag, Control+E edits text, and
 Control+Delete deletes the active entry. Deleting pinned entries asks for confirmation.
 
@@ -163,7 +168,8 @@ bash tools/smoke.sh
 
 The smoke script runs a separate headless GNOME session with synthetic data and
 isolated settings. It checks populated menus, corner placement, active-row actions,
-preferences construction, and cleanup. The process ends through `timeout`, so exit
+preferences construction, bidirectional lazy scrolling, and cleanup. Set
+`ARCHIVE_TEST_TEXT_SCALE=1.5` to exercise 150% text scaling. The process ends through `timeout`, so exit
 code 124 is expected. Inspect `ARCHIVE_SMOKE` messages and errors in its output.
 
 Benchmarks cover helper queries at 1k, 10k, and 100k entries. They do not establish

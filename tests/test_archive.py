@@ -39,6 +39,8 @@ class ArchiveTests(unittest.TestCase):
         page=self.archive.query()
         self.assertEqual(len(page['items']),30)
         self.assertTrue(page['more'])
+        self.assertEqual(page['total'],103)
+        self.assertEqual(len(self.archive.query(limit=60)['items']),60)
         self.assertEqual(page['items'][0]['id'],1)
         ids=[]
         for offset in range(0,120,30): ids.extend(x['id'] for x in self.archive.query(offset=offset)['items'])
