@@ -14,3 +14,6 @@
 .ci-pin-indicator { icon-size: 1.1em; }
 
 .ci-hover-preview { padding: 0.8em; }
+
+/* Entry icons otherwise fall back to St.Icon's large intrinsic size. */
+.ci-search-entry StIcon { icon-size: 1em; margin: 0 0.25em; }

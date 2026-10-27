@@ -136,7 +136,7 @@ export default class ClipboardArchive extends Extension {
         this.manager = new PopupMenu.PopupMenuManager(this.button);
         this.manager.addMenu(this.history);
         const searchRow = this.searchRow = new PopupMenu.PopupBaseMenuItem({reactive:false, can_focus:false});
-        this.search = new St.Entry({hint_text:'Search clipboard history…', can_focus:true, x_expand:true,
+        this.search = new St.Entry({hint_text:'Search clipboard history…', style_class:'ci-search-entry', can_focus:true, x_expand:true,
             primary_icon:new St.Icon({icon_name:'edit-find-symbolic'})});
         searchRow.add_child(this.search);
         this.history.addMenuItem(searchRow);
