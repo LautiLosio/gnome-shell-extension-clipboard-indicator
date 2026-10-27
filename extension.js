@@ -152,10 +152,12 @@ export default class ClipboardArchive extends Extension {
         });
         this.results = new PopupMenu.PopupMenuSection();
         this.results.actor.set_style('spacing: 0;');
-        const scrollRow = new PopupMenu.PopupBaseMenuItem({reactive:false, can_focus:false});
+        // A non-activatable PopupBaseMenuItem is insensitive and disables its
+        // descendants. Use a section so result rows keep normal theme colors.
+        const scrollRow = new PopupMenu.PopupMenuSection();
         this.scroll = new St.ScrollView({style_class:'ci-archive-scroll', overlay_scrollbars:true, x_expand:true});
         this.scroll.add_child(this.results.actor);
-        scrollRow.add_child(this.scroll);
+        scrollRow.actor.add_child(this.scroll);
         this.history.addMenuItem(scrollRow);
         this.adjustment = this.scroll.get_vadjustment();
         this.adjustment.connect('notify::value', () => this.onScroll());
@@ -251,7 +253,7 @@ export default class ClipboardArchive extends Extension {
             item.label.clutter_text.set_ellipsize(3);
             item.label.x_expand = true;
             if (entry.thumbnail) item.insert_child_at_index(new St.Icon({gicon:Gio.icon_new_for_string(entry.thumbnail),style_class:'ci-thumbnail'}),1);
-            if (entry.tag) item.add_child(new St.Label({text:entry.tag.slice(0,32),style_class:'dim-label'}));
+            if (entry.tag) item.add_child(new St.Label({text:entry.tag.slice(0,32),style_class:'ci-entry-tag'}));
             item.connect('activate', () => this.run(() => this.select(entry)));
             item.track_hover=true;
             const active = () => this.setActive(index);
@@ -440,7 +442,7 @@ export default class ClipboardArchive extends Extension {
             this.history.close();
             this.editor = new ModalDialog.ModalDialog();
             const input = new St.Entry({text:tag ? entry.tag : new TextDecoder().decode(GLib.base64_decode(payload.data)),
-                can_focus:true, style_class:'ci-edit-textbox'});
+                can_focus:true, style_class:'entry ci-edit-textbox'});
             this.editor.contentLayout.add_child(new St.Label({text:tag ? 'Edit tag' : 'Edit clipboard text'}));
             this.editor.contentLayout.add_child(input);
             const dialog = this.editor;

@@ -34,6 +34,10 @@ s=s.replace('this.configureInterval();','''this.configureInterval();
                 console.log('ARCHIVE_SMOKE: corner=' + step + ',rows=' + this.rows.length + ',popup=' + [x,y,w,h]);
                 this.setActive(4);
                 console.log('ARCHIVE_SMOKE: visibleActions=' + this.actionActors.filter(a=>a.visible).length);
+                for(const row of this.rowActors) {
+                    if(!row.sensitive || !row.reactive) throw new Error('History row inherited insensitive state');
+                }
+                console.log('ARCHIVE_SMOKE: enabledRows=' + this.rowActors.length + ',foreground=' + this.rowActors[4].label.get_theme_node().get_foreground_color().to_string());
                 const action=this.actionActors[4].get_first_child();
                 console.log('ARCHIVE_SMOKE: actionSize=' + action.width + 'x' + action.height);
                 for(const box of this.actionActors.filter(a=>a.visible)) for(const button of box.get_children()) {

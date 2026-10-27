@@ -11,4 +11,4 @@ mkdir -p "$XDG_RUNTIME_DIR"
 chmod 700 "$XDG_RUNTIME_DIR"
 export GSETTINGS_BACKEND=keyfile
 # These settings and the display are isolated from the user's running session.
-exec timeout 16s dbus-run-session -- bash -c 'gsettings set org.gnome.desktop.interface text-scaling-factor ${ARCHIVE_TEST_TEXT_SCALE:-1.0}; gsettings set org.gnome.shell enabled-extensions "[\"clipboard-indicator@lautilosio.github.io\"]"; gnome-shell --headless --wayland --no-x11 --virtual-monitor=1280x800'
+exec timeout 16s dbus-run-session -- bash -c 'gsettings set org.gnome.desktop.interface text-scaling-factor ${ARCHIVE_TEST_TEXT_SCALE:-1.0}; gsettings set org.gnome.desktop.interface color-scheme ${ARCHIVE_TEST_COLOR_SCHEME:-prefer-dark}; gsettings set org.gnome.shell enabled-extensions "[\"clipboard-indicator@lautilosio.github.io\"]"; gnome-shell --headless --wayland --no-x11 --virtual-monitor=1280x800'

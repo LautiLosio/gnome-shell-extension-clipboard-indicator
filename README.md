@@ -215,3 +215,9 @@ The tray reports the selected mode, with semantic model availability listed
 separately under Storage. Image actions open the system viewer; hover previews
 stay inside the popup. Manual deletion controls do not disable scheduled cleanup
 or retention limits. Action buttons use square, font-relative dimensions.
+
+Popup content inherits the active GNOME Shell theme colors. Results are hosted in
+a menu section rather than an insensitive menu-item wrapper, so history rows
+retain their enabled foreground colors. Tags use the same foreground as entries;
+the fork does not impose a hard-coded dark palette. Blur extensions can still
+change backdrop opacity, so contrast also depends on their settings and the theme.
