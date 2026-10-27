@@ -44,7 +44,7 @@ with tempfile.TemporaryDirectory() as folder:
   assert Path(ocr['items'][0]['thumbnail']).exists()
   assert len(ocr['items'])==1
   preview=request('preview',entry=3)
-  assert preview['width']<=384 and preview['height']<=256
+  assert preview['width']<=1024 and preview['height']<=768
   assert Path(preview['image']).exists()
   request('delete',entry=3)
   assert not Path(preview['image']).exists()

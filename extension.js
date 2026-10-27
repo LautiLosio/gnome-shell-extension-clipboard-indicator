@@ -21,6 +21,14 @@ const TYPE = St.ClipboardType.CLIPBOARD;
 const PAGE = 60;
 const OVERSCAN = 15;
 
+// St.Icon renders an icon-sized square. Images need a rectangular actor with
+// contain sizing so screenshots keep their proportions without cropping.
+function imageActor(path, params={}) {
+    const actor=new St.Widget({style_class:'ci-image',...params});
+    actor.set_style(`background-image: url("${Gio.File.new_for_path(path).get_uri()}");`);
+    return actor;
+}
+
 export default class ClipboardArchive extends Extension {
     enable() {
         this.settings = this.getSettings();
@@ -252,7 +260,7 @@ export default class ClipboardArchive extends Extension {
             if (entry.favorite) item.insert_child_at_index(new St.Icon({icon_name:'view-pin-symbolic',style_class:'popup-menu-icon ci-pin-indicator',accessible_name:'Pinned'}),1);
             item.label.clutter_text.set_ellipsize(3);
             item.label.x_expand = true;
-            if (entry.thumbnail) item.insert_child_at_index(new St.Icon({gicon:Gio.icon_new_for_string(entry.thumbnail),style_class:'ci-thumbnail'}),1);
+            if (entry.thumbnail) item.insert_child_at_index(imageActor(entry.thumbnail,{style_class:'ci-image ci-thumbnail',y_align:Clutter.ActorAlign.CENTER}),1);
             if (entry.tag) item.add_child(new St.Label({text:entry.tag.slice(0,32),style_class:'ci-entry-tag'}));
             item.connect('activate', () => this.run(() => this.select(entry)));
             item.track_hover=true;
@@ -357,12 +365,14 @@ export default class ClipboardArchive extends Extension {
                 const monitor=Main.layoutManager.monitors.find(m=>rx>=m.x && rx<m.x+m.width && ry>=m.y && ry<m.y+m.height) || Main.layoutManager.primaryMonitor;
                 if(!monitor) return;
                 const area=Main.layoutManager.getWorkAreaForMonitor(monitor.index);
-                const width=Math.min(400*scale,area.width-48);
+                const width=Math.min(520*scale,area.width-48);
                 this.previewBox.set_style(`width: ${width}px;`);
                 if(result.image) {
-                    const imageScale=Math.min(1,(width-24)/result.width,(area.height/2)/result.height);
-                    this.previewBox.add_child(new St.Icon({gicon:Gio.icon_new_for_string(result.image),
-                        width:result.width*imageScale,height:result.height*imageScale,icon_size:Math.max(result.width,result.height)*imageScale}));
+                    const imageScale=Math.min(1,(width-24*scale)/result.width,(area.height*0.6-24*scale)/result.height);
+                    const imageWidth=Math.max(1,Math.round(result.width*imageScale));
+                    const imageHeight=Math.max(1,Math.round(result.height*imageScale));
+                    this.previewBox.set_style(`width: ${imageWidth}px;`);
+                    this.previewBox.add_child(imageActor(result.image,{width:imageWidth,height:imageHeight}));
                 } else {
                     const lines=result.text.split('\n');
                     let text=lines.slice(0,12).join('\n');

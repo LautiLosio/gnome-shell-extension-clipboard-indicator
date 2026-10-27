@@ -182,9 +182,9 @@ class Archive:
                 try:
                     from PIL import Image
                     with Image.open(row['path']) as image:
-                        image.thumbnail((96,96))
+                        image.thumbnail((192,192), Image.Resampling.LANCZOS)
                         file = Path(row['path']+'.thumb.png')
-                        image.convert('RGB').save(file,format='PNG')
+                        image.convert('RGBA').save(file,format='PNG')
                         thumbnail = str(file)
                     if ocr:
                         result = ocr(row['path'])
@@ -276,10 +276,10 @@ class Archive:
                 if not row['path']:
                     return {'text':row['text'][:4000], 'truncated':len(row['text'])>4000}
                 from PIL import Image
-                preview = Path(row['path']+'.preview.png')
+                preview = Path(row['path']+'.preview-v2.png')
                 if not preview.exists():
                     with Image.open(row['path']) as image:
-                        image.thumbnail((384,256))
+                        image.thumbnail((1024,768), Image.Resampling.LANCZOS)
                         temporary=Path(str(preview)+'.tmp')
                         image.convert('RGBA').save(temporary,format='PNG')
                         temporary.replace(preview)
@@ -324,6 +324,7 @@ class Archive:
         for path in paths:
             Path(path).unlink(missing_ok=True)
             Path(path+'.preview.png').unlink(missing_ok=True)
+            Path(path+'.preview-v2.png').unlink(missing_ok=True)
 
 
 def regex_query():

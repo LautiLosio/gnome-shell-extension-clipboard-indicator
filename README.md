@@ -32,7 +32,7 @@ performance claims are limited to the measurements described below.
 | Persistent history | JSON registry with whole-history serialization on saves; separate cached image files | SQLite database with incremental record writes and attachment files |
 | Work inside GNOME Shell | History comparison, serialization, and menu work run in Shell | Hashing, database operations, OCR, embeddings, and semantic retrieval run in a private helper process |
 | Menu size | A live row is created for every retained entry | One continuous, lazy-loaded list with at most 60 live result rows, including pinned entries |
-| Image loading | Startup loads cached image payloads; menu rows create image previews | Originals stay on disk until requested; background workers create 96-pixel thumbnails for result rows |
+| Image loading | Startup loads cached image payloads; menu rows create image previews | Originals stay on disk until requested; background workers create thumbnails up to 192 pixels for result rows |
 | Duplicate detection | Walks the retained history and compares entry values | SHA-256 of the incoming item, looked up through a unique database index |
 | Search | Substring and optional regex matching against entries and tags | Indexed FTS5 keyword/prefix search, plus optional local semantic ranking |
 | Screenshot search | Image identifiers and manually assigned tags | Background OCR makes recognized screenshot text available to keyword and semantic search |
@@ -221,3 +221,10 @@ a menu section rather than an insensitive menu-item wrapper, so history rows
 retain their enabled foreground colors. Tags use the same foreground as entries;
 the fork does not impose a hard-coded dark palette. Blur extensions can still
 change backdrop opacity, so contrast also depends on their settings and the theme.
+
+Image thumbnails use rectangular contain sizing. Hover previews preserve the
+source aspect ratio and fit within the monitor work area, without a fixed wide
+frame around narrow images. On-demand preview caches are bounded to 1024×768
+pixels and use Lanczos downsampling; new row thumbnails are bounded to 192×192.
+Existing thumbnails remain usable. Original images stay unchanged and the image
+action opens the original in the system viewer.

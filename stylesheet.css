@@ -6,7 +6,8 @@
 .ci-floating-history { -arrow-rise: 12px; -boxpointer-gap: 8px; }
 /* Text inherits GNOME Shell's font and text scaling. Geometry follows em units. */
 .ci-history-row { height: 2.5em; }
-.ci-thumbnail { icon-size: 1.6em; }
+.ci-image { background-size: contain; background-repeat: no-repeat; background-position: center; }
+.ci-thumbnail { width: 3em; height: 2em; }
 .ci-row-actions { spacing: 0.25em; margin-left: 0.5em; }
 .ci-floating-history .ci-row-action { width: 2em; height: 2em; min-width: 2em; min-height: 2em; padding: 0; margin: 0; }
 /* Menu-leading icons carry spacing that does not belong inside icon buttons. */

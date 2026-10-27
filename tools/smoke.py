@@ -3,6 +3,8 @@
 import importlib.util
 from pathlib import Path
 import shutil
+import struct
+import zlib
 
 repo=Path(__file__).resolve().parents[1]
 root=repo.parent/'work/gnome-smoke'
@@ -18,6 +20,12 @@ m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
 a=m.Archive(root/'data'/uuid)
 with a.db:
  for i in range(1000): a.add('text/plain',f'Synthetic entry {i} audio networking test'.encode(),i%29==0)
+# Include a wide screenshot to exercise rectangular hover rendering.
+def chunk(kind,data):
+ return struct.pack('>I',len(data))+kind+data+struct.pack('>I',zlib.crc32(kind+data)&0xffffffff)
+png=b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('>IIBBBBB',900,300,8,2,0,0,0))+chunk(b'IDAT',zlib.compress((b'\x00'+b'\xd0\x70\x40'*900)*300))+chunk(b'IEND',b'')
+a.add('image/png',png,True)
+a.db.commit()
 a.db.close()
 p=ext/'extension.js'
 s=p.read_text().replace('const pointer = global.get_pointer();','const pointer = this.testPointer || global.get_pointer();')
@@ -54,10 +62,13 @@ s=s.replace('this.configureInterval();','''this.configureInterval();
                         this.later(700,() => {
                             console.log('ARCHIVE_SMOKE: scrollBack offset=' + this.renderOffset);
                             if(this.renderOffset!==0) throw new Error('Reverse scrolling failed');
-                            this.setActive(4);
+                            this.setActive(Math.max(0,this.rows.findIndex(e=>e.mimetype.startsWith('image/'))));
                             this.later(600,()=>{
                                 console.log('ARCHIVE_SMOKE: hoverPreview=' + this.previewBox.visible);
                                 if(!this.previewBox.visible) throw new Error('Hover preview did not open');
+                                const image=this.previewBox.get_first_child();
+                                console.log('ARCHIVE_SMOKE: imagePreview=' + image.width + 'x' + image.height);
+                                if(Math.abs(image.width/image.height-3)>0.03) throw new Error('Preview aspect ratio changed');
                                 this.hidePreview();
                             });
                             this.later(800,()=>{this.history.close();});
